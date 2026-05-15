@@ -1,0 +1,7 @@
+gradio
+pandas
+pdfplumber
+matplotlib
+plotly
+transformers
+torch
