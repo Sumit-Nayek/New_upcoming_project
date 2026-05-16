@@ -6,3 +6,4 @@ plotly
 transformers
 torch
 openpyxl
+torchvision
