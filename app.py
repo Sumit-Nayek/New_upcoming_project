@@ -562,85 +562,79 @@
 #         e3.metric("📅 Avg Daily Spend", f"₹{a['avg_daily']:,.2f}")
 #         st.dataframe(df_existing, use_container_width=True)
 
+import streamlit as st
 import pdfplumber
+import pandas as pd
 import re
 from datetime import datetime
-import pandas as pd
-from typing import List, Dict, Optional
-import warnings
+from collections import Counter
+import plotly.express as px
+import plotly.graph_objects as go
+from io import BytesIO
 
-warnings.filterwarnings('ignore')
+st.set_page_config(
+    page_title="Financial Transaction Analyzer",
+    page_icon="💵",
+    layout="wide"
+)
 
+# =========================================================
+# HELPERS
+# =========================================================
+
+MONTH_MAP = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4,
+    "may": 5, "jun": 6, "jul": 7, "aug": 8,
+    "sep": 9, "oct": 10, "nov": 11, "dec": 12
+}
+
+
+def safe_float(value):
+    try:
+        return float(str(value).replace(",", "").replace("₹", "").strip())
+    except:
+        return 0.0
+
+
+# =========================================================
+# TRANSACTION EXTRACTOR
+# =========================================================
 
 class TransactionExtractor:
-    """
-    Robust PhonePe / UPI Transaction Extractor
 
-    Fixes:
-    ✅ Correct debit / credit classification
-    ✅ Correct amount extraction
-    ✅ Prevents transaction ID being extracted as amount
-    ✅ Proper datetime sorting
-    ✅ Better transaction summaries
-    """
-
-    def __init__(self, pdf_path: str):
-        self.pdf_path = pdf_path
+    def __init__(self, uploaded_file):
+        self.uploaded_file = uploaded_file
         self.transactions = []
 
-    # ============================================================
+    # -----------------------------------------------------
     # MAIN EXTRACTION
-    # ============================================================
+    # -----------------------------------------------------
 
-    def extract_transactions(self) -> pd.DataFrame:
+    def extract_transactions(self):
 
-        print(f"\n{'='*70}")
-        print(f"Extracting transactions from: {self.pdf_path}")
-        print('='*70)
+        with pdfplumber.open(self.uploaded_file) as pdf:
 
-        try:
-            with pdfplumber.open(self.pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages, start=1):
 
-                for page_num, page in enumerate(pdf.pages, 1):
+                text = page.extract_text()
 
-                    print(f"\n📄 Processing Page {page_num}...")
+                if not text:
+                    continue
 
-                    text = page.extract_text()
+                lines = text.split("\n")
 
-                    if not text:
-                        print(f"⚠️ No text found on page {page_num}")
-                        continue
+                page_transactions = self.process_page(lines, page_num)
 
-                    lines = text.split('\n')
+                if page_transactions:
+                    self.transactions.extend(page_transactions)
 
-                    page_transactions = self._process_page(lines, page_num)
+        return self.create_dataframe()
 
-                    if page_transactions:
-                        self.transactions.extend(page_transactions)
-
-                        print(
-                            f"✅ Found {len(page_transactions)} transactions on page {page_num}"
-                        )
-
-            df = self._create_dataframe()
-
-            self._print_summary(df)
-
-            return df
-
-        except Exception as e:
-            print(f"❌ Extraction Error: {str(e)}")
-            return pd.DataFrame()
-
-    # ============================================================
+    # -----------------------------------------------------
     # PROCESS PAGE
-    # ============================================================
+    # -----------------------------------------------------
 
-    def _process_page(
-        self,
-        lines: List[str],
-        page_num: int
-    ) -> List[Dict]:
+    def process_page(self, lines, page_num):
 
         transactions = []
 
@@ -650,592 +644,495 @@ class TransactionExtractor:
 
             line = lines[i].strip()
 
-            if self._looks_like_date_line(line):
+            if self.looks_like_transaction(line):
 
-                transaction = self._extract_transaction_block(
+                transaction = self.extract_transaction_block(
                     lines,
                     i,
                     page_num
                 )
 
                 if transaction:
+                    transactions.append(transaction)
 
-                    # IMPORTANT VALIDATION
-                    if (
-                        transaction.get('amount') is not None
-                        and transaction.get('type') is not None
-                    ):
-                        transactions.append(transaction)
+                i += 1
 
-                    i += 4
-
-                else:
-                    i += 1
             else:
                 i += 1
 
         return transactions
 
-    # ============================================================
-    # EXTRACT TRANSACTION BLOCK
-    # ============================================================
+    # -----------------------------------------------------
+    # TRANSACTION START DETECTION
+    # -----------------------------------------------------
 
-    def _extract_transaction_block(
-        self,
-        lines: List[str],
-        start_idx: int,
-        page_num: int
-    ) -> Optional[Dict]:
+    def looks_like_transaction(self, line):
+
+        date_patterns = [
+            r"[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}",
+            r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}"
+        ]
+
+        has_date = any(re.search(p, line) for p in date_patterns)
+
+        has_money = "₹" in line
+
+        has_tx_type = (
+            "DEBIT" in line.upper()
+            or "CREDIT" in line.upper()
+            or "Paid to" in line
+            or "Received from" in line
+        )
+
+        return has_date and has_money and has_tx_type
+
+    # -----------------------------------------------------
+    # EXTRACT BLOCK
+    # -----------------------------------------------------
+
+    def extract_transaction_block(self, lines, start_idx, page_num):
 
         try:
 
+            line = lines[start_idx].strip()
+
             transaction = {
-                'page_number': page_num,
-                'raw_lines': []
+                "page_number": page_num,
+                "raw_text": line
             }
 
-            # ----------------------------------------
-            # Collect nearby lines
-            # ----------------------------------------
+            # ---------------------------------------------
+            # DATE
+            # ---------------------------------------------
 
-            block_lines = []
+            date_match = re.search(
+                r"([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})",
+                line
+            )
 
-            for offset in range(0, 5):
+            if date_match:
 
-                if start_idx + offset < len(lines):
+                date_str = date_match.group(1)
 
-                    current_line = lines[start_idx + offset].strip()
+                transaction["date"] = date_str
 
-                    if current_line:
-                        block_lines.append(current_line)
+                try:
+                    transaction["parsed_date"] = datetime.strptime(
+                        date_str,
+                        "%b %d, %Y"
+                    )
+                except:
+                    transaction["parsed_date"] = None
 
-            full_block = " ".join(block_lines)
+            # ---------------------------------------------
+            # TIME
+            # ---------------------------------------------
 
-            transaction['raw_lines'] = block_lines
+            time_match = re.search(
+                r"(\d{1,2}:\d{2}\s*[ap]m)",
+                line.lower()
+            )
 
-            # ----------------------------------------
-            # Extract date + time
-            # ----------------------------------------
+            if time_match:
+                transaction["time"] = time_match.group(1)
 
-            date_info = self._extract_date_time(full_block)
+            # ---------------------------------------------
+            # TYPE
+            # ---------------------------------------------
 
-            if date_info:
-                transaction.update(date_info)
+            line_upper = line.upper()
 
-            # ----------------------------------------
-            # Extract transaction type + recipient
-            # ----------------------------------------
+            if "CREDIT" in line_upper or "RECEIVED FROM" in line_upper:
+                transaction["type"] = "CREDIT"
 
-            recipient_info = self._extract_recipient_and_type(full_block)
+            elif "DEBIT" in line_upper or "PAID TO" in line_upper:
+                transaction["type"] = "DEBIT"
 
-            if recipient_info:
-                transaction.update(recipient_info)
+            else:
+                transaction["type"] = "UNKNOWN"
 
-            # ----------------------------------------
-            # Extract amount
-            # ----------------------------------------
+            # ---------------------------------------------
+            # RECIPIENT
+            # ---------------------------------------------
 
-            amount = self._extract_amount(full_block)
+            recipient = None
 
-            transaction['amount'] = amount
+            debit_match = re.search(
+                r"Paid to\s+(.+?)(?:\s+DEBIT|\s+₹|$)",
+                line,
+                re.IGNORECASE
+            )
 
-            # ----------------------------------------
-            # Extract IDs
-            # ----------------------------------------
+            credit_match = re.search(
+                r"Received from\s+(.+?)(?:\s+CREDIT|\s+₹|$)",
+                line,
+                re.IGNORECASE
+            )
 
-            tx_info = self._extract_transaction_ids(full_block)
+            if debit_match:
+                recipient = debit_match.group(1).strip()
 
-            transaction.update(tx_info)
+            elif credit_match:
+                recipient = credit_match.group(1).strip()
+
+            transaction["recipient"] = recipient
+
+            # ---------------------------------------------
+            # AMOUNT
+            # FIXED AMOUNT EXTRACTION
+            # ---------------------------------------------
+
+            amount = self.extract_amount(line)
+
+            transaction["amount"] = amount
+
+            # ---------------------------------------------
+            # TRANSACTION ID
+            # ---------------------------------------------
+
+            for offset in range(1, 4):
+
+                if start_idx + offset >= len(lines):
+                    break
+
+                next_line = lines[start_idx + offset].strip()
+
+                tx_match = re.search(
+                    r"Transaction ID\s+(\S+)",
+                    next_line
+                )
+
+                if tx_match:
+                    transaction["transaction_id"] = tx_match.group(1)
 
             return transaction
 
         except Exception as e:
-
-            print(f"❌ Block Extraction Error: {e}")
-
             return None
 
-    # ============================================================
-    # DATE DETECTION
-    # ============================================================
+    # -----------------------------------------------------
+    # FIXED AMOUNT EXTRACTION
+    # -----------------------------------------------------
 
-    def _looks_like_date_line(self, line: str) -> bool:
-
-        patterns = [
-
-            r'[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}',
-
-            r'\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4}',
-
-            r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}'
-        ]
-
-        return any(re.search(p, line) for p in patterns)
-
-    # ============================================================
-    # DATE + TIME EXTRACTION
-    # ============================================================
-
-    def _extract_date_time(self, text: str) -> Dict:
-
-        result = {}
-
-        date_match = re.search(
-            r'([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})',
-            text
-        )
-
-        if date_match:
-
-            result['date'] = date_match.group(1)
-
-            try:
-
-                parsed = datetime.strptime(
-                    date_match.group(1),
-                    '%b %d, %Y'
-                )
-
-                result['parsed_date'] = parsed
-
-            except:
-                pass
-
-        time_match = re.search(
-            r'(\d{1,2}:\d{2}\s*[ap]m)',
-            text.lower()
-        )
-
-        if time_match:
-            result['time'] = time_match.group(1)
-
-        return result
-
-    # ============================================================
-    # RECIPIENT + TYPE
-    # ============================================================
-
-    def _extract_recipient_and_type(self, text: str) -> Dict:
-
-        result = {}
-
-        clean_text = text.upper()
-
-        # ----------------------------------------
-        # TYPE DETECTION
-        # ----------------------------------------
-
-        if (
-            'RECEIVED FROM' in clean_text
-            or 'CREDIT' in clean_text
-        ):
-            result['type'] = 'CREDIT'
-
-        elif (
-            'PAID TO' in clean_text
-            or 'DEBIT' in clean_text
-        ):
-            result['type'] = 'DEBIT'
-
-        # ----------------------------------------
-        # RECIPIENT EXTRACTION
-        # ----------------------------------------
-
-        paid_match = re.search(
-            r'Paid to\s+(.+?)(?:\s+DEBIT|\s+₹|\s+\d)',
-            text,
-            re.IGNORECASE
-        )
-
-        received_match = re.search(
-            r'Received from\s+(.+?)(?:\s+CREDIT|\s+₹|\s+\d)',
-            text,
-            re.IGNORECASE
-        )
-
-        if paid_match:
-
-            result['recipient'] = paid_match.group(1).strip()
-
-        elif received_match:
-
-            result['recipient'] = received_match.group(1).strip()
-
-        return result
-
-    # ============================================================
-    # IMPROVED AMOUNT EXTRACTION
-    # ============================================================
-
-    def _extract_amount(self, text: str) -> Optional[float]:
+    def extract_amount(self, line):
 
         """
-        PRIORITY ORDER:
-
-        1. ₹ 1,234.00
-        2. INR 1,234.00
-        3. Amount after DEBIT/CREDIT
-        4. Largest realistic money value
+        FIXES:
+        - avoids extracting transaction IDs
+        - extracts correct ₹ amount
+        - supports comma separated values
         """
 
-        # ----------------------------------------
-        # CLEAN TEXT
-        # ----------------------------------------
-
-        text = text.replace(',', '')
-
-        # ----------------------------------------
-        # PATTERN 1 -> ₹ amount
-        # ----------------------------------------
+        # STRICT ₹ BASED EXTRACTION
 
         rupee_matches = re.findall(
-            r'₹\s*([0-9]+(?:\.[0-9]{1,2})?)',
-            text
+            r"₹\s*([\d,]+(?:\.\d{1,2})?)",
+            line
         )
 
         if rupee_matches:
 
-            try:
+            # Usually last ₹ amount is actual transaction amount
+            amount_str = rupee_matches[-1]
 
-                amounts = [float(x) for x in rupee_matches]
+            return safe_float(amount_str)
 
-                return max(amounts)
+        # FALLBACK:
+        # Find decimal amounts only
 
-            except:
-                pass
-
-        # ----------------------------------------
-        # PATTERN 2 -> INR amount
-        # ----------------------------------------
-
-        inr_matches = re.findall(
-            r'INR\s*([0-9]+(?:\.[0-9]{1,2})?)',
-            text,
-            re.IGNORECASE
+        decimal_matches = re.findall(
+            r"\b(\d+\.\d{2})\b",
+            line
         )
 
-        if inr_matches:
+        if decimal_matches:
 
-            try:
+            amount_str = decimal_matches[-1]
 
-                amounts = [float(x) for x in inr_matches]
+            return safe_float(amount_str)
 
-                return max(amounts)
+        return 0.0
 
-            except:
-                pass
-
-        # ----------------------------------------
-        # PATTERN 3 -> After DEBIT/CREDIT
-        # ----------------------------------------
-
-        type_amount = re.search(
-            r'(?:DEBIT|CREDIT)\s+([0-9]+(?:\.[0-9]{1,2})?)',
-            text,
-            re.IGNORECASE
-        )
-
-        if type_amount:
-
-            try:
-                return float(type_amount.group(1))
-            except:
-                pass
-
-        # ----------------------------------------
-        # PATTERN 4 -> Largest realistic amount
-        # Ignore long transaction IDs
-        # ----------------------------------------
-
-        numeric_matches = re.findall(
-            r'\b([0-9]{1,7}(?:\.[0-9]{1,2})?)\b',
-            text
-        )
-
-        valid_amounts = []
-
-        for num in numeric_matches:
-
-            try:
-
-                value = float(num)
-
-                # Ignore impossible amounts / IDs
-                if 0 < value < 10000000:
-                    valid_amounts.append(value)
-
-            except:
-                pass
-
-        if valid_amounts:
-            return max(valid_amounts)
-
-        return None
-
-    # ============================================================
-    # TRANSACTION IDS
-    # ============================================================
-
-    def _extract_transaction_ids(self, text: str) -> Dict:
-
-        result = {}
-
-        tx_match = re.search(
-            r'Transaction ID\s+(\S+)',
-            text,
-            re.IGNORECASE
-        )
-
-        if tx_match:
-            result['transaction_id'] = tx_match.group(1)
-
-        utr_match = re.search(
-            r'UTR No\.?\s+(\S+)',
-            text,
-            re.IGNORECASE
-        )
-
-        if utr_match:
-            result['utr_number'] = utr_match.group(1)
-
-        return result
-
-    # ============================================================
+    # -----------------------------------------------------
     # DATAFRAME CREATION
-    # ============================================================
+    # -----------------------------------------------------
 
-    def _create_dataframe(self) -> pd.DataFrame:
+    def create_dataframe(self):
 
         if not self.transactions:
             return pd.DataFrame()
 
         df = pd.DataFrame(self.transactions)
 
-        # ----------------------------------------
-        # Clean Type
-        # ----------------------------------------
+        # -------------------------------------------------
+        # CLEAN TYPE
+        # -------------------------------------------------
 
-        if 'type' in df.columns:
+        if "type" in df.columns:
 
-            df['type'] = (
-                df['type']
+            df["type"] = (
+                df["type"]
                 .astype(str)
-                .str.strip()
                 .str.upper()
+                .str.strip()
             )
 
-        # ----------------------------------------
-        # Clean Amount
-        # ----------------------------------------
+        # -------------------------------------------------
+        # CLEAN AMOUNT
+        # -------------------------------------------------
 
-        if 'amount' in df.columns:
+        if "amount" in df.columns:
 
-            df['amount'] = pd.to_numeric(
-                df['amount'],
-                errors='coerce'
-            )
+            df["amount"] = pd.to_numeric(
+                df["amount"],
+                errors="coerce"
+            ).fillna(0)
 
-        # ----------------------------------------
-        # Proper datetime parsing
-        # ----------------------------------------
+        # -------------------------------------------------
+        # CLEAN DATE
+        # -------------------------------------------------
 
-        if 'date' in df.columns:
-
-            df['parsed_date'] = pd.to_datetime(
-                df['date'],
-                format='%b %d, %Y',
-                errors='coerce'
-            )
-
-        # ----------------------------------------
-        # Remove invalid rows
-        # ----------------------------------------
-
-        df = df.dropna(subset=['amount'])
-
-        # ----------------------------------------
-        # Column ordering
-        # ----------------------------------------
-
-        columns = [
-
-            'date',
-            'parsed_date',
-            'time',
-            'recipient',
-            'type',
-            'amount',
-            'transaction_id',
-            'utr_number',
-            'page_number'
-        ]
-
-        available_cols = [
-            c for c in columns
-            if c in df.columns
-        ]
-
-        df = df[available_cols]
-
-        # ----------------------------------------
-        # Sort chronologically
-        # ----------------------------------------
-
-        if 'parsed_date' in df.columns:
+        if "parsed_date" in df.columns:
 
             df = df.sort_values(
-                'parsed_date'
+                by="parsed_date",
+                ascending=True
             )
 
         return df.reset_index(drop=True)
 
-    # ============================================================
-    # SUMMARY
-    # ============================================================
 
-    def _print_summary(self, df: pd.DataFrame):
+# =========================================================
+# ANALYTICS
+# =========================================================
 
-        if df.empty:
+def calculate_metrics(df):
 
-            print("\n❌ No transactions found")
+    debit_df = df[df["type"] == "DEBIT"]
 
-            return
+    credit_df = df[df["type"] == "CREDIT"]
 
-        print(f"\n{'='*70}")
-        print("📊 EXTRACTION SUMMARY")
-        print('='*70)
+    total_spent = debit_df["amount"].sum()
 
-        print(f"Total transactions found: {len(df)}")
+    total_received = credit_df["amount"].sum()
 
-        # ----------------------------------------
-        # Totals
-        # ----------------------------------------
+    debit_count = len(debit_df)
 
-        total_debit = df[
-            df['type'] == 'DEBIT'
-        ]['amount'].sum()
+    credit_count = len(credit_df)
 
-        total_credit = df[
-            df['type'] == 'CREDIT'
-        ]['amount'].sum()
+    avg_daily_spend = 0
 
-        print(f"\n💰 Financial Summary")
+    if not df.empty and "parsed_date" in df.columns:
 
-        print(f"Total Debit : ₹{total_debit:,.2f}")
-        print(f"Total Credit: ₹{total_credit:,.2f}")
-        print(f"Net Flow    : ₹{total_credit-total_debit:,.2f}")
+        valid_dates = df["parsed_date"].dropna()
 
-        # ----------------------------------------
-        # Counts
-        # ----------------------------------------
+        if not valid_dates.empty:
 
-        debit_count = len(df[df['type'] == 'DEBIT'])
+            total_days = (
+                valid_dates.max() - valid_dates.min()
+            ).days + 1
 
-        credit_count = len(df[df['type'] == 'CREDIT'])
+            if total_days > 0:
+                avg_daily_spend = total_spent / total_days
 
-        print(f"\n📈 Transaction Counts")
-
-        print(f"Debit Transactions : {debit_count}")
-        print(f"Credit Transactions: {credit_count}")
-
-        # ----------------------------------------
-        # Date Range
-        # ----------------------------------------
-
-        if 'parsed_date' in df.columns:
-
-            valid_dates = df['parsed_date'].dropna()
-
-            if not valid_dates.empty:
-
-                print(
-                    f"\n📅 Date Range: "
-                    f"{valid_dates.min().date()} "
-                    f"to "
-                    f"{valid_dates.max().date()}"
-                )
-
-        # ----------------------------------------
-        # Sample
-        # ----------------------------------------
-
-        print("\n📋 First 5 Transactions")
-
-        print(
-            df.head(5).to_string(index=False)
-        )
+    return {
+        "total_spent": total_spent,
+        "total_received": total_received,
+        "debit_count": debit_count,
+        "credit_count": credit_count,
+        "avg_daily_spend": avg_daily_spend
+    }
 
 
-# ============================================================
-# WEEKLY SUMMARY
-# ============================================================
+# =========================================================
+# CATEGORY ANALYSIS
+# =========================================================
 
-def weekly_recipient_summary(df: pd.DataFrame) -> pd.DataFrame:
+def categorize_transaction(name):
+
+    if pd.isna(name):
+        return "Other"
+
+    name = str(name).lower()
+
+    mapping = {
+        "recharge": ["jio", "airtel", "vi"],
+        "food": ["swiggy", "zomato", "restaurant"],
+        "travel": ["uber", "ola", "irctc"],
+        "shopping": ["amazon", "flipkart", "myntra"],
+        "bank": ["bank", "atm"],
+        "education": ["college", "university", "exam"],
+    }
+
+    for category, keywords in mapping.items():
+
+        if any(k in name for k in keywords):
+            return category.title()
+
+    return "Other"
+
+
+# =========================================================
+# STREAMLIT UI
+# =========================================================
+
+st.title("💵 Financial Transaction Analyzer")
+
+st.markdown(
+    """
+Upload your PhonePe, Paytm, or Bank Statement PDF.
+The app extracts transactions and generates analytics.
+"""
+)
+
+uploaded_file = st.file_uploader(
+    "Upload PDF Statement",
+    type=["pdf"]
+)
+
+if uploaded_file:
+
+    with st.spinner("Extracting transactions..."):
+
+        extractor = TransactionExtractor(uploaded_file)
+
+        df = extractor.extract_transactions()
 
     if df.empty:
-        return pd.DataFrame()
 
-    working_df = df.dropna(
-        subset=['parsed_date', 'recipient']
-    ).copy()
+        st.error("No transactions found.")
 
-    working_df['week_start'] = (
-        working_df['parsed_date']
-        .dt.to_period('W')
-        .dt.start_time
-    )
+    else:
 
-    grouped = (
-        working_df.groupby(
-            ['week_start', 'recipient']
-        )
-        .agg(
-            occurrence_count=('recipient', 'count'),
-            total_amount=('amount', 'sum')
-        )
-        .reset_index()
-    )
-
-    grouped = grouped.sort_values(
-        ['week_start', 'occurrence_count'],
-        ascending=[True, False]
-    )
-
-    grouped['week_start'] = (
-        grouped['week_start']
-        .dt.date
-    )
-
-    return grouped
-
-
-# ============================================================
-# MAIN EXECUTION
-# ============================================================
-
-if __name__ == "__main__":
-
-    pdf_file = "/content/PhonePe_Statement_Aug2025_May2026.pdf"
-
-    extractor = TransactionExtractor(pdf_file)
-
-    df = extractor.extract_transactions()
-
-    if not df.empty:
-
-        # CSV
-        csv_file = pdf_file.replace(
-            '.pdf',
-            '_transactions.csv'
+        st.success(
+            f"Parsed {len(df)} transactions successfully."
         )
 
-        df.to_csv(csv_file, index=False)
+        # =================================================
+        # METRICS
+        # =================================================
 
-        print(f"\n💾 CSV Saved: {csv_file}")
+        metrics = calculate_metrics(df)
 
-        # Weekly summary
-        weekly_df = weekly_recipient_summary(df)
+        col1, col2, col3, col4 = st.columns(4)
 
-        print("\n📊 Weekly Summary Preview")
+        with col1:
+            st.metric(
+                "💰 Total Spent",
+                f"₹{metrics['total_spent']:,.2f}"
+            )
 
-        print(weekly_df.head(10))
+        with col2:
+            st.metric(
+                "💵 Total Received",
+                f"₹{metrics['total_received']:,.2f}"
+            )
+
+        with col3:
+            st.metric(
+                "📤 Debit Transactions",
+                metrics["debit_count"]
+            )
+
+        with col4:
+            st.metric(
+                "📥 Credit Transactions",
+                metrics["credit_count"]
+            )
+
+        st.divider()
+
+        # =================================================
+        # CATEGORY ANALYSIS
+        # =================================================
+
+        if "recipient" in df.columns:
+
+            debit_df = df[df["type"] == "DEBIT"].copy()
+
+            debit_df["category"] = debit_df["recipient"].apply(
+                categorize_transaction
+            )
+
+            category_summary = (
+                debit_df.groupby("category")["amount"]
+                .sum()
+                .reset_index()
+                .sort_values(by="amount", ascending=False)
+            )
+
+            st.subheader("📊 Spending by Category")
+
+            fig = px.pie(
+                category_summary,
+                names="category",
+                values="amount",
+                hole=0.4
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        # =================================================
+        # MONTHLY TREND
+        # =================================================
+
+        if "parsed_date" in df.columns:
+
+            trend_df = df.copy()
+
+            trend_df["month"] = (
+                trend_df["parsed_date"]
+                .dt.to_period("M")
+                .astype(str)
+            )
+
+            monthly = (
+                trend_df.groupby(
+                    ["month", "type"]
+                )["amount"]
+                .sum()
+                .reset_index()
+            )
+
+            st.subheader("📈 Monthly Trend")
+
+            fig2 = px.bar(
+                monthly,
+                x="month",
+                y="amount",
+                color="type",
+                barmode="group"
+            )
+
+            st.plotly_chart(
+                fig2,
+                use_container_width=True
+            )
+
+        # =================================================
+        # RAW DATA
+        # =================================================
+
+        st.subheader("📄 Transactions")
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            height=500
+        )
+
+        # =================================================
+        # CSV EXPORT
+        # =================================================
+
+        csv = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="⬇ Download CSV",
+            data=csv,
+            file_name="transactions.csv",
+            mime="text/csv"
+        )
