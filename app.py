@@ -574,7 +574,6 @@ from datetime import datetime
 # =========================================================
 # PAGE CONFIG
 # =========================================================
-
 st.set_page_config(
     page_title="Financial Transaction Analyzer",
     page_icon="💰",
@@ -596,13 +595,10 @@ def clean_amount(value):
     except:
         return 0.0
 
-
 # =========================================================
 # TRANSACTION EXTRACTOR
 # =========================================================
-
 class TransactionExtractor:
-
     def __init__(self, uploaded_file):
         self.uploaded_file = uploaded_file
         self.transactions = []
@@ -612,11 +608,8 @@ class TransactionExtractor:
     # =====================================================
 
     def extract_transactions(self):
-
         with pdfplumber.open(self.uploaded_file) as pdf:
-
             for page_num, page in enumerate(pdf.pages, start=1):
-
                 text = page.extract_text()
 
                 if not text:
