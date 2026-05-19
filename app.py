@@ -771,33 +771,33 @@ class TransactionExtractor:
 
     def process_page(self, lines, page_num):
 
-    transactions = []
-
-    i = 0
-
-    while i < len(lines):
-
-        line = lines[i].strip()
-
-        if self.looks_like_transaction(line):
-
-            transaction = self.extract_transaction(
-                lines,
-                i,
-                page_num
-            )
-
-            if transaction:
-
-                transactions.append(transaction)
-
-            i += 4
-
-        else:
-
-            i += 1
-
-    return transactions
+        transactions = []
+    
+        i = 0
+    
+        while i < len(lines):
+    
+            line = lines[i].strip()
+    
+            if self.looks_like_transaction(line):
+    
+                transaction = self.extract_transaction(
+                    lines,
+                    i,
+                    page_num
+                )
+    
+                if transaction:
+    
+                    transactions.append(transaction)
+    
+                i += 4
+    
+            else:
+    
+                i += 1
+    
+        return transactions
 
     # =====================================================
     # DETECT TRANSACTION LINE
