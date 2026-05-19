@@ -614,158 +614,157 @@ class TransactionExtractor:
     self,
     lines,
     start_idx,
-    page_num
-):
+    page_num):
 
-    try:
-
-        line1 = lines[start_idx].strip()
-
-        transaction = {
-            "page_number": page_num,
-            "time": None
-        }
-
-        # ------------------------------------------------
-        # DATE
-        # ------------------------------------------------
-
-        date_match = re.search(
-            r'([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})',
-            line1
-        )
-
-        if date_match:
-
-            transaction["date"] = (
-                date_match.group(1)
+        try:
+    
+            line1 = lines[start_idx].strip()
+    
+            transaction = {
+                "page_number": page_num,
+                "time": None
+            }
+    
+            # ------------------------------------------------
+            # DATE
+            # ------------------------------------------------
+    
+            date_match = re.search(
+                r'([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})',
+                line1
             )
-
-            try:
-
-                transaction["parsed_date"] = datetime.strptime(
-                    date_match.group(1),
-                    '%b %d, %Y'
+    
+            if date_match:
+    
+                transaction["date"] = (
+                    date_match.group(1)
                 )
-
-            except:
-                pass
-
-        # ------------------------------------------------
-        # TIME IN SAME LINE
-        # ------------------------------------------------
-
-        time_match = re.search(
-            r'(\d{1,2}:\d{2}\s*[ap]m)',
-            line1.lower()
-        )
-
-        if time_match:
-
-            transaction["time"] = (
-                time_match.group(1)
-            )
-
-        # ------------------------------------------------
-        # CHECK NEXT 2 LINES FOR TIME
-        # ------------------------------------------------
-
-        if not transaction["time"]:
-
-            for offset in [1, 2]:
-
-                if start_idx + offset < len(lines):
-
-                    next_line = lines[
-                        start_idx + offset
-                    ].strip()
-
-                    time_match = re.search(
-                        r'(\d{1,2}:\d{2}\s*[ap]m)',
-                        next_line.lower()
+    
+                try:
+    
+                    transaction["parsed_date"] = datetime.strptime(
+                        date_match.group(1),
+                        '%b %d, %Y'
                     )
-
-                    if time_match:
-
-                        transaction["time"] = (
-                            time_match.group(1)
-                        )
-
-                        break
-
-        # ------------------------------------------------
-        # TYPE
-        # ------------------------------------------------
-
-        line_upper = line1.upper()
-
-        if (
-            "CREDIT" in line_upper
-            or "RECEIVED FROM" in line_upper
-        ):
-            transaction["type"] = "CREDIT"
-
-        elif (
-            "DEBIT" in line_upper
-            or "PAID TO" in line_upper
-        ):
-            transaction["type"] = "DEBIT"
-
-        else:
-            transaction["type"] = "UNKNOWN"
-
-        # ------------------------------------------------
-        # RECEIVER NAME
-        # ------------------------------------------------
-
-        recipient = None
-
-        debit_match = re.findall(
-            r"Paid to\s+(.+?)(?:\s+DEBIT|\s+₹|$)",
-            line1,
-            re.IGNORECASE
-        )
-
-        credit_match = re.findall(
-            r"Received from\s+(.+?)(?:\s+CREDIT|\s+₹|$)",
-            line1,
-            re.IGNORECASE
-        )
-
-        if debit_match:
-
-            recipient = debit_match[-1].strip()
-
-        elif credit_match:
-
-            recipient = credit_match[-1].strip()
-
-        transaction["receiver_name"] = recipient
-
-        # ------------------------------------------------
-        # AMOUNT
-        # ------------------------------------------------
-
-        rupee_matches = re.findall(
-            r"₹\s*([\d,]+(?:\.\d{1,2})?)",
-            line1
-        )
-
-        if rupee_matches:
-
-            transaction["amount"] = clean_amount(
-                rupee_matches[-1]
+    
+                except:
+                    pass
+    
+            # ------------------------------------------------
+            # TIME IN SAME LINE
+            # ------------------------------------------------
+    
+            time_match = re.search(
+                r'(\d{1,2}:\d{2}\s*[ap]m)',
+                line1.lower()
             )
-
-        else:
-
-            transaction["amount"] = 0.0
-
-        return transaction
-
-    except Exception as e:
-
-        return None
+    
+            if time_match:
+    
+                transaction["time"] = (
+                    time_match.group(1)
+                )
+    
+            # ------------------------------------------------
+            # CHECK NEXT 2 LINES FOR TIME
+            # ------------------------------------------------
+    
+            if not transaction["time"]:
+    
+                for offset in [1, 2]:
+    
+                    if start_idx + offset < len(lines):
+    
+                        next_line = lines[
+                            start_idx + offset
+                        ].strip()
+    
+                        time_match = re.search(
+                            r'(\d{1,2}:\d{2}\s*[ap]m)',
+                            next_line.lower()
+                        )
+    
+                        if time_match:
+    
+                            transaction["time"] = (
+                                time_match.group(1)
+                            )
+    
+                            break
+    
+            # ------------------------------------------------
+            # TYPE
+            # ------------------------------------------------
+    
+            line_upper = line1.upper()
+    
+            if (
+                "CREDIT" in line_upper
+                or "RECEIVED FROM" in line_upper
+            ):
+                transaction["type"] = "CREDIT"
+    
+            elif (
+                "DEBIT" in line_upper
+                or "PAID TO" in line_upper
+            ):
+                transaction["type"] = "DEBIT"
+    
+            else:
+                transaction["type"] = "UNKNOWN"
+    
+            # ------------------------------------------------
+            # RECEIVER NAME
+            # ------------------------------------------------
+    
+            recipient = None
+    
+            debit_match = re.findall(
+                r"Paid to\s+(.+?)(?:\s+DEBIT|\s+₹|$)",
+                line1,
+                re.IGNORECASE
+            )
+    
+            credit_match = re.findall(
+                r"Received from\s+(.+?)(?:\s+CREDIT|\s+₹|$)",
+                line1,
+                re.IGNORECASE
+            )
+    
+            if debit_match:
+    
+                recipient = debit_match[-1].strip()
+    
+            elif credit_match:
+    
+                recipient = credit_match[-1].strip()
+    
+            transaction["receiver_name"] = recipient
+    
+            # ------------------------------------------------
+            # AMOUNT
+            # ------------------------------------------------
+    
+            rupee_matches = re.findall(
+                r"₹\s*([\d,]+(?:\.\d{1,2})?)",
+                line1
+            )
+    
+            if rupee_matches:
+    
+                transaction["amount"] = clean_amount(
+                    rupee_matches[-1]
+                )
+    
+            else:
+    
+                transaction["amount"] = 0.0
+    
+            return transaction
+    
+        except Exception as e:
+    
+            return None
     # =====================================================
     # PROCESS PAGE
     # =====================================================
