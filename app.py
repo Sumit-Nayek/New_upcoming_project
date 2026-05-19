@@ -610,61 +610,195 @@ class TransactionExtractor:
     # MAIN EXTRACTION
     # =====================================================
 
-    def extract_transactions(self):
+    def extract_transaction(
+    self,
+    lines,
+    start_idx,
+    page_num
+):
 
-        with pdfplumber.open(self.uploaded_file) as pdf:
+    try:
 
-            for page_num, page in enumerate(pdf.pages, start=1):
+        line1 = lines[start_idx].strip()
 
-                text = page.extract_text()
+        transaction = {
+            "page_number": page_num,
+            "time": None
+        }
 
-                if not text:
-                    continue
+        # ------------------------------------------------
+        # DATE
+        # ------------------------------------------------
 
-                lines = text.split("\n")
+        date_match = re.search(
+            r'([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})',
+            line1
+        )
 
-                page_transactions = self.process_page(
-                    lines,
-                    page_num
+        if date_match:
+
+            transaction["date"] = (
+                date_match.group(1)
+            )
+
+            try:
+
+                transaction["parsed_date"] = datetime.strptime(
+                    date_match.group(1),
+                    '%b %d, %Y'
                 )
 
-                if page_transactions:
-                    self.transactions.extend(
-                        page_transactions
+            except:
+                pass
+
+        # ------------------------------------------------
+        # TIME IN SAME LINE
+        # ------------------------------------------------
+
+        time_match = re.search(
+            r'(\d{1,2}:\d{2}\s*[ap]m)',
+            line1.lower()
+        )
+
+        if time_match:
+
+            transaction["time"] = (
+                time_match.group(1)
+            )
+
+        # ------------------------------------------------
+        # CHECK NEXT 2 LINES FOR TIME
+        # ------------------------------------------------
+
+        if not transaction["time"]:
+
+            for offset in [1, 2]:
+
+                if start_idx + offset < len(lines):
+
+                    next_line = lines[
+                        start_idx + offset
+                    ].strip()
+
+                    time_match = re.search(
+                        r'(\d{1,2}:\d{2}\s*[ap]m)',
+                        next_line.lower()
                     )
 
-        return self.create_dataframe()
+                    if time_match:
 
+                        transaction["time"] = (
+                            time_match.group(1)
+                        )
+
+                        break
+
+        # ------------------------------------------------
+        # TYPE
+        # ------------------------------------------------
+
+        line_upper = line1.upper()
+
+        if (
+            "CREDIT" in line_upper
+            or "RECEIVED FROM" in line_upper
+        ):
+            transaction["type"] = "CREDIT"
+
+        elif (
+            "DEBIT" in line_upper
+            or "PAID TO" in line_upper
+        ):
+            transaction["type"] = "DEBIT"
+
+        else:
+            transaction["type"] = "UNKNOWN"
+
+        # ------------------------------------------------
+        # RECEIVER NAME
+        # ------------------------------------------------
+
+        recipient = None
+
+        debit_match = re.findall(
+            r"Paid to\s+(.+?)(?:\s+DEBIT|\s+₹|$)",
+            line1,
+            re.IGNORECASE
+        )
+
+        credit_match = re.findall(
+            r"Received from\s+(.+?)(?:\s+CREDIT|\s+₹|$)",
+            line1,
+            re.IGNORECASE
+        )
+
+        if debit_match:
+
+            recipient = debit_match[-1].strip()
+
+        elif credit_match:
+
+            recipient = credit_match[-1].strip()
+
+        transaction["receiver_name"] = recipient
+
+        # ------------------------------------------------
+        # AMOUNT
+        # ------------------------------------------------
+
+        rupee_matches = re.findall(
+            r"₹\s*([\d,]+(?:\.\d{1,2})?)",
+            line1
+        )
+
+        if rupee_matches:
+
+            transaction["amount"] = clean_amount(
+                rupee_matches[-1]
+            )
+
+        else:
+
+            transaction["amount"] = 0.0
+
+        return transaction
+
+    except Exception as e:
+
+        return None
     # =====================================================
     # PROCESS PAGE
     # =====================================================
 
     def process_page(self, lines, page_num):
 
-        transactions = []
+    transactions = []
 
-        i = 0
+    i = 0
 
-        while i < len(lines):
+    while i < len(lines):
 
-            line = lines[i].strip()
+        line = lines[i].strip()
 
-            if self.looks_like_transaction(line):
+        if self.looks_like_transaction(line):
 
-                transaction = self.extract_transaction(
-                    line,
-                    page_num
-                )
+            transaction = self.extract_transaction(
+                lines,
+                i,
+                page_num
+            )
 
-                if transaction:
-                    transactions.append(transaction)
+            if transaction:
 
-                i += 1
+                transactions.append(transaction)
 
-            else:
-                i += 1
+            i += 4
 
-        return transactions
+        else:
+
+            i += 1
+
+    return transactions
 
     # =====================================================
     # DETECT TRANSACTION LINE
@@ -930,42 +1064,41 @@ if uploaded_file:
     # =====================================================
 
     st.header(
-        "👤 Stage 3: Unique Receiver Transactions"
-    )
+    "👤 Stage 3: Unique Receiver Transactions"
+)
 
-    unique_df = (
-        df[
-            [
-                "receiver_name",
-                "time",
-                "amount"
-            ]
+# Ensure required columns exist
+
+required_columns = [
+    "receiver_name",
+    "time",
+    "amount"
+]
+
+for col in required_columns:
+
+    if col not in df.columns:
+
+        df[col] = None
+
+unique_df = (
+    df[
+        [
+            "receiver_name",
+            "time",
+            "amount"
         ]
-        .dropna(subset=["receiver_name"])
-        .drop_duplicates(
-            subset=["receiver_name"],
-            keep="last"
-        )
-        .reset_index(drop=True)
+    ]
+    .dropna(subset=["receiver_name"])
+    .drop_duplicates(
+        subset=["receiver_name"],
+        keep="last"
     )
+    .reset_index(drop=True)
+)
 
-    st.dataframe(
-        unique_df,
-        use_container_width=True,
-        height=500
-    )
-
-    # =====================================================
-    # DOWNLOAD CSV
-    # =====================================================
-
-    csv = df.to_csv(index=False).encode(
-        "utf-8"
-    )
-
-    st.download_button(
-        label="⬇ Download CSV",
-        data=csv,
-        file_name="transactions.csv",
-        mime="text/csv"
-    )
+st.dataframe(
+    unique_df,
+    use_container_width=True,
+    height=500
+)
