@@ -561,7 +561,6 @@
 #         e2.metric("🧾 Transactions",    a["transaction_count"])
 #         e3.metric("📅 Avg Daily Spend", f"₹{a['avg_daily']:,.2f}")
 #         st.dataframe(df_existing, use_container_width=True)
-
 import streamlit as st
 import pdfplumber
 import pandas as pd
@@ -591,6 +590,7 @@ def clean_amount(value):
             .replace(",", "")
             .strip()
         )
+
     except:
         return 0.0
 
@@ -858,7 +858,7 @@ class TransactionExtractor:
 
             return transaction
 
-        except Exception as e:
+        except Exception:
 
             return None
 
@@ -875,7 +875,7 @@ class TransactionExtractor:
         df = pd.DataFrame(self.transactions)
 
         # ------------------------------------------------
-        # ENSURE COLUMNS EXIST
+        # ENSURE REQUIRED COLUMNS
         # ------------------------------------------------
 
         required_columns = [
@@ -913,6 +913,16 @@ class TransactionExtractor:
             errors="coerce"
         ).fillna(0)
 
+        # ------------------------------------------------
+        # SORT BY DATE
+        # ------------------------------------------------
+
+        if "parsed_date" in df.columns:
+
+            df = df.sort_values(
+                by="parsed_date"
+            )
+
         return df.reset_index(drop=True)
 
 
@@ -948,7 +958,7 @@ if uploaded_file:
         df = extractor.extract_transactions()
 
     # =====================================================
-    # NO TRANSACTION FOUND
+    # NO DATA
     # =====================================================
 
     if df.empty:
@@ -1032,15 +1042,18 @@ if uploaded_file:
         # =================================================
 
         st.header(
-            "👤 Stage 3: Unique Receiver Data"
+            "👤 Stage 3: Last Unique Receiver Transactions"
         )
+
+        # KEEP LAST OCCURRENCE OF RECEIVER
 
         unique_df = (
 
             df[
                 [
-                    "receiver_name",
+                    "date",
                     "time",
+                    "receiver_name",
                     "amount"
                 ]
             ]
@@ -1055,6 +1068,17 @@ if uploaded_file:
             )
 
             .reset_index(drop=True)
+        )
+
+        # RENAME COLUMNS
+
+        unique_df = unique_df.rename(
+            columns={
+                "date": "Last Transaction Date",
+                "time": "Last Transaction Time",
+                "receiver_name": "Receiver Name",
+                "amount": "Amount"
+            }
         )
 
         st.dataframe(
