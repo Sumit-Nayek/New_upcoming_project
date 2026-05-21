@@ -51,9 +51,7 @@
 #     conn.commit()
 #     conn.close()
 
-
 # init_db()
-
 
 # def save_transactions(transactions: List[Dict], source_file: str) -> int:
 #     """Insert transactions; skip only when a non-null transaction_id already exists."""
@@ -89,13 +87,11 @@
 #     conn.close()
 #     return df
 
-
 # def clear_all_transactions():
 #     conn = sqlite3.connect(DB_PATH)
 #     conn.execute("DELETE FROM transactions")
 #     conn.commit()
 #     conn.close()
-
 
 # # ──────────────────────────────────────────────────────────────────────────────
 # # 2. PDF EXTRACTION  — multi-line aware TransactionExtractor
@@ -276,7 +272,6 @@
 #     "top_categories": {}, "top_recipients": {}, "daily_spending": {},
 # }
 
-
 # def compute_analytics(df: pd.DataFrame) -> Dict[str, Any]:
 #     if df.empty:
 #         return _EMPTY_ANALYTICS.copy()
@@ -332,7 +327,6 @@
 #         "daily_spending":    daily_spending,
 #     }
 
-
 # # ──────────────────────────────────────────────────────────────────────────────
 # # 3b. WEEKLY RECIPIENT SUMMARY
 # # ──────────────────────────────────────────────────────────────────────────────
@@ -357,7 +351,6 @@
 #     )
 #     grouped["week_start"] = grouped["week_start"].dt.date
 #     return grouped.reset_index(drop=True)
-
 
 # # ──────────────────────────────────────────────────────────────────────────────
 # # 4. VISUALIZATIONS
