@@ -1,69 +1,93 @@
 import streamlit as st
-import pdfplumber
-import pandas as pd
-import re
-from datetime import datetime
+        debit_df = df[
+            df["type"] == "DEBIT"
+        ]
 
-# =========================================================
-# PAGE CONFIG
-# =========================================================
+        credit_df = df[
+            df["type"] == "CREDIT"
+        ]
 
-st.set_page_config(
-    page_title="Financial Transaction Analyzer",
-    page_icon="💰",
-    layout="wide"
-)
-
-# =========================================================
-# HELPER FUNCTION
-# =========================================================
-
-
-def clean_amount(value):
-
-    try:
-        return float(
-            str(value)
-            .replace("₹", "")
-            .replace(",", "")
-            .strip()
+        total_debit = (
+            debit_df["amount"].sum()
         )
 
-    except:
-        return 0.0
+        total_credit = (
+            credit_df["amount"].sum()
+        )
 
+        total_transactions = len(df)
 
-# =========================================================
-# TRANSACTION EXTRACTOR
-# =========================================================
+        unique_receivers = (
+            df["receiver_name"]
+            .dropna()
+            .nunique()
+        )
 
+        col1, col2, col3, col4 = st.columns(4)
 
-class TransactionExtractor:
+        col1.metric(
+            "Total Transactions",
+            total_transactions
+        )
 
-    def __init__(self, uploaded_file):
+        col2.metric(
+            "Total Debit",
+            f"₹{total_debit:,.2f}"
+        )
 
-        self.uploaded_file = uploaded_file
-        self.transactions = []
+        col3.metric(
+            "Total Credit",
+            f"₹{total_credit:,.2f}"
+        )
 
-    # =====================================================
-    # MAIN EXTRACTION
-    # =====================================================
+        col4.metric(
+            "Unique Receivers",
+            unique_receivers
+        )
 
-    def extract_transactions(self):
+        # =================================================
+        # STAGE 3
+        # =================================================
 
-        with pdfplumber.open(self.uploaded_file) as pdf:
+        st.header(
+            "👤 Stage 3: Last Unique Receiver Transactions"
+        )
 
-            for page_num, page in enumerate(pdf.pages, start=1):
+        unique_df = (
 
-                text = page.extract_text()
+            df[
+                [
+                    "date",
+                    "time",
+                    "receiver_name",
+                    "amount"
+                ]
+            ]
 
-                if not text:
-                    continue
+            .dropna(
+                subset=["receiver_name"]
+            )
 
-                lines = text.split("\n")
+            .drop_duplicates(
+                subset=["receiver_name"],
+                keep="last"
+            )
 
-                page_transactions = self.process_page(
-                    lines,
-                    page_num
-                )
+            .reset_index(drop=True)
+        )
+
+        unique_df = unique_df.rename(
+            columns={
+                "date": "Last Transaction Date",
+                "time": "Last Transaction Time",
+                "receiver_name": "Receiver Name",
+                "amount": "Amount"
+            }
+        )
+
+        st.dataframe(
+            unique_df,
+            use_container_width=True,
+            height=500
+        )
         )
