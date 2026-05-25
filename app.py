@@ -66,10 +66,7 @@ class TransactionExtractor:
                 )
 
                 if page_transactions:
-
-                    self.transactions.extend(
-                        page_transactions
-                    )
+                    self.transactions.extend(page_transactions)
 
         return self.create_dataframe()
 
@@ -87,6 +84,19 @@ class TransactionExtractor:
 
             line = lines[i].strip()
 
+            # ------------------------------------------------
+            # SEPTEMBER FORMAT FIX
+            # ------------------------------------------------
+            # Detect lines like:
+            #
+            # Sept 29, 2025 Paid to XXXXXX DEBIT ₹10
+            #
+            # Earlier regex only supported:
+            # Sep 29, 2025
+            #
+            # Now supports Sept also
+            # ------------------------------------------------
+
             if self.looks_like_transaction(line):
 
                 transaction = self.extract_transaction(
@@ -98,8 +108,9 @@ class TransactionExtractor:
                 if transaction:
                     transactions.append(transaction)
 
-                # IMPORTANT FIX
-                # Earlier i += 4 skipped September entries
+                # IMPORTANT
+                # DO NOT SKIP 4 LINES
+                # September entries are compact
                 i += 1
 
             else:
@@ -115,10 +126,16 @@ class TransactionExtractor:
 
         date_patterns = [
 
+            # Sep 29, 2025
             r'[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}',
 
+            # Sept 29, 2025
+            r'[A-Z][a-z]{3,4}\s+\d{1,2},\s+\d{4}',
+
+            # 29 Sep 2025
             r'\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4}',
 
+            # 29/09/2025
             r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
         ]
 
@@ -130,6 +147,7 @@ class TransactionExtractor:
                 has_date = True
                 break
 
+        # MUST HAVE AMOUNT
         has_amount = "₹" in line
 
         return has_date and has_amount
@@ -158,25 +176,31 @@ class TransactionExtractor:
                 "amount": 0.0
             }
 
-            # ------------------------------------------------
-            # DATE
-            # ------------------------------------------------
+            # =================================================
+            # DATE EXTRACTION
+            # =================================================
 
             date_match = re.search(
-                r'([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})',
+                r'([A-Z][a-z]{2,4}\s+\d{1,2},\s+\d{4})',
                 line1
             )
 
             if date_match:
 
-                transaction["date"] = (
-                    date_match.group(1)
+                raw_date = date_match.group(1)
+
+                # Convert Sept -> Sep
+                raw_date = raw_date.replace(
+                    "Sept",
+                    "Sep"
                 )
+
+                transaction["date"] = raw_date
 
                 try:
 
                     transaction["parsed_date"] = datetime.strptime(
-                        date_match.group(1),
+                        raw_date,
                         '%b %d, %Y'
                     )
 
@@ -184,10 +208,11 @@ class TransactionExtractor:
 
                     transaction["parsed_date"] = None
 
-            # ------------------------------------------------
-            # TIME SAME LINE
-            # ------------------------------------------------
+            # =================================================
+            # TIME EXTRACTION
+            # =================================================
 
+            # SAME LINE
             time_match = re.search(
                 r'(\d{1,2}:\d{2}\s*[ap]m)',
                 line1.lower()
@@ -199,10 +224,7 @@ class TransactionExtractor:
                     time_match.group(1)
                 )
 
-            # ------------------------------------------------
-            # CHECK NEXT LINES FOR TIME
-            # ------------------------------------------------
-
+            # NEXT LINES
             if not transaction["time"]:
 
                 for offset in [1, 2, 3]:
@@ -226,9 +248,9 @@ class TransactionExtractor:
 
                             break
 
-            # ------------------------------------------------
-            # TYPE
-            # ------------------------------------------------
+            # =================================================
+            # TRANSACTION TYPE
+            # =================================================
 
             line_upper = line1.upper()
 
@@ -250,9 +272,9 @@ class TransactionExtractor:
 
                 transaction["type"] = "UNKNOWN"
 
-            # ------------------------------------------------
+            # =================================================
             # RECEIVER NAME
-            # ------------------------------------------------
+            # =================================================
 
             debit_match = re.findall(
                 r"Paid to\s+(.+?)(?:\s+DEBIT|\s+₹|$)",
@@ -278,9 +300,9 @@ class TransactionExtractor:
                     credit_match[-1].strip()
                 )
 
-            # ------------------------------------------------
-            # AMOUNT
-            # ------------------------------------------------
+            # =================================================
+            # AMOUNT EXTRACTION
+            # =================================================
 
             rupee_matches = re.findall(
                 r"₹\s*([\d,]+(?:\.\d{1,2})?)",
@@ -289,6 +311,8 @@ class TransactionExtractor:
 
             if rupee_matches:
 
+                # TAKE LAST AMOUNT
+                # avoids wrong extraction
                 transaction["amount"] = clean_amount(
                     rupee_matches[-1]
                 )
@@ -326,6 +350,7 @@ class TransactionExtractor:
             if col not in df.columns:
                 df[col] = None
 
+        # CLEAN TYPE
         df["type"] = (
             df["type"]
             .astype(str)
@@ -333,11 +358,13 @@ class TransactionExtractor:
             .str.strip()
         )
 
+        # CLEAN AMOUNT
         df["amount"] = pd.to_numeric(
             df["amount"],
             errors="coerce"
         ).fillna(0)
 
+        # SORT
         if "parsed_date" in df.columns:
 
             df = df.sort_values(
@@ -377,6 +404,10 @@ if uploaded_file:
         )
 
         df = extractor.extract_transactions()
+
+    # =====================================================
+    # EMPTY
+    # =====================================================
 
     if df.empty:
 
