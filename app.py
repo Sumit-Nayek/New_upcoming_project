@@ -587,11 +587,9 @@ def clean_amount(value):
     except:
         return 0.0
 
-
 # =========================================================
 # TRANSACTION EXTRACTOR
 # =========================================================
-
 class TransactionExtractor:
 
     def __init__(self, uploaded_file):
@@ -668,22 +666,15 @@ class TransactionExtractor:
     # =====================================================
 
     def looks_like_transaction(self, line):
-
         date_patterns = [
-
             r'[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}',
-
             r'\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4}',
-
             r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
         ]
 
         for pattern in date_patterns:
-
             if re.search(pattern, line):
-
                 return True
-
         return False
 
     # =====================================================
