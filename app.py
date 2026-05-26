@@ -84,19 +84,6 @@ class TransactionExtractor:
 
             line = lines[i].strip()
 
-            # ------------------------------------------------
-            # SEPTEMBER FORMAT FIX
-            # ------------------------------------------------
-            # Detect lines like:
-            #
-            # Sept 29, 2025 Paid to XXXXXX DEBIT ₹10
-            #
-            # Earlier regex only supported:
-            # Sep 29, 2025
-            #
-            # Now supports Sept also
-            # ------------------------------------------------
-
             if self.looks_like_transaction(line):
 
                 transaction = self.extract_transaction(
@@ -108,9 +95,6 @@ class TransactionExtractor:
                 if transaction:
                     transactions.append(transaction)
 
-                # IMPORTANT
-                # DO NOT SKIP 4 LINES
-                # September entries are compact
                 i += 1
 
             else:
@@ -126,16 +110,12 @@ class TransactionExtractor:
 
         date_patterns = [
 
-            # Sep 29, 2025
             r'[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}',
 
-            # Sept 29, 2025
             r'[A-Z][a-z]{3,4}\s+\d{1,2},\s+\d{4}',
 
-            # 29 Sep 2025
             r'\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4}',
 
-            # 29/09/2025
             r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
         ]
 
@@ -147,7 +127,6 @@ class TransactionExtractor:
                 has_date = True
                 break
 
-        # MUST HAVE AMOUNT
         has_amount = "₹" in line
 
         return has_date and has_amount
@@ -177,7 +156,7 @@ class TransactionExtractor:
             }
 
             # =================================================
-            # DATE EXTRACTION
+            # DATE
             # =================================================
 
             date_match = re.search(
@@ -189,7 +168,6 @@ class TransactionExtractor:
 
                 raw_date = date_match.group(1)
 
-                # Convert Sept -> Sep
                 raw_date = raw_date.replace(
                     "Sept",
                     "Sep"
@@ -209,10 +187,9 @@ class TransactionExtractor:
                     transaction["parsed_date"] = None
 
             # =================================================
-            # TIME EXTRACTION
+            # TIME
             # =================================================
 
-            # SAME LINE
             time_match = re.search(
                 r'(\d{1,2}:\d{2}\s*[ap]m)',
                 line1.lower()
@@ -224,7 +201,6 @@ class TransactionExtractor:
                     time_match.group(1)
                 )
 
-            # NEXT LINES
             if not transaction["time"]:
 
                 for offset in [1, 2, 3]:
@@ -249,7 +225,7 @@ class TransactionExtractor:
                             break
 
             # =================================================
-            # TRANSACTION TYPE
+            # TYPE
             # =================================================
 
             line_upper = line1.upper()
@@ -301,7 +277,7 @@ class TransactionExtractor:
                 )
 
             # =================================================
-            # AMOUNT EXTRACTION
+            # AMOUNT
             # =================================================
 
             rupee_matches = re.findall(
@@ -311,8 +287,6 @@ class TransactionExtractor:
 
             if rupee_matches:
 
-                # TAKE LAST AMOUNT
-                # avoids wrong extraction
                 transaction["amount"] = clean_amount(
                     rupee_matches[-1]
                 )
@@ -350,7 +324,6 @@ class TransactionExtractor:
             if col not in df.columns:
                 df[col] = None
 
-        # CLEAN TYPE
         df["type"] = (
             df["type"]
             .astype(str)
@@ -358,13 +331,11 @@ class TransactionExtractor:
             .str.strip()
         )
 
-        # CLEAN AMOUNT
         df["amount"] = pd.to_numeric(
             df["amount"],
             errors="coerce"
         ).fillna(0)
 
-        # SORT
         if "parsed_date" in df.columns:
 
             df = df.sort_values(
@@ -379,12 +350,6 @@ class TransactionExtractor:
 # =========================================================
 
 st.title("💰 Financial Transaction Analyzer")
-
-st.markdown(
-    """
-Upload PhonePe / Paytm / Bank Statement PDF
-"""
-)
 
 uploaded_file = st.file_uploader(
     "Upload PDF File",
@@ -405,10 +370,6 @@ if uploaded_file:
 
         df = extractor.extract_transactions()
 
-    # =====================================================
-    # EMPTY
-    # =====================================================
-
     if df.empty:
 
         st.error(
@@ -418,130 +379,155 @@ if uploaded_file:
     else:
 
         # =================================================
+        # BUTTONS
+        # =================================================
+
+        st.subheader("📂 Analysis Sections")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            show_stage1 = st.button(
+                "📌 Show Extracted Transactions"
+            )
+
+        with col2:
+            show_stage2 = st.button(
+                "📊 Show Summary"
+            )
+
+        with col3:
+            show_stage3 = st.button(
+                "👤 Show Unique Receivers"
+            )
+
+        # =================================================
         # STAGE 1
         # =================================================
 
-        st.header(
-            "📌 Stage 1: Extracted Transactions"
-        )
+        if show_stage1:
 
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=450
-        )
+            st.header(
+                "📌 Stage 1: Extracted Transactions"
+            )
+
+            st.dataframe(
+                df,
+                use_container_width=True,
+                height=450
+            )
 
         # =================================================
         # STAGE 2
         # =================================================
 
-        st.header(
-            "📊 Stage 2: Summary"
-        )
+        if show_stage2:
 
-        debit_df = df[
-            df["type"] == "DEBIT"
-        ]
+            st.header(
+                "📊 Stage 2: Summary"
+            )
 
-        credit_df = df[
-            df["type"] == "CREDIT"
-        ]
+            debit_df = df[
+                df["type"] == "DEBIT"
+            ]
 
-        total_debit = (
-            debit_df["amount"].sum()
-        )
+            credit_df = df[
+                df["type"] == "CREDIT"
+            ]
 
-        total_credit = (
-            credit_df["amount"].sum()
-        )
+            total_debit = (
+                debit_df["amount"].sum()
+            )
 
-        total_transactions = len(df)
+            total_credit = (
+                credit_df["amount"].sum()
+            )
 
-        unique_receivers = (
-            df["receiver_name"]
-            .dropna()
-            .nunique()
-        )
+            total_transactions = len(df)
 
-        col1, col2, col3, col4 = st.columns(4)
+            unique_receivers = (
+                df["receiver_name"]
+                .dropna()
+                .nunique()
+            )
 
-        col1.metric(
-            "Total Transactions",
-            total_transactions
-        )
+            c1, c2, c3, c4 = st.columns(4)
 
-        col2.metric(
-            "Total Debit",
-            f"₹{total_debit:,.2f}"
-        )
+            c1.metric(
+                "Total Transactions",
+                total_transactions
+            )
 
-        col3.metric(
-            "Total Credit",
-            f"₹{total_credit:,.2f}"
-        )
+            c2.metric(
+                "Total Debit",
+                f"₹{total_debit:,.2f}"
+            )
 
-        col4.metric(
-            "Unique Receivers",
-            unique_receivers
-        )
+            c3.metric(
+                "Total Credit",
+                f"₹{total_credit:,.2f}"
+            )
+
+            c4.metric(
+                "Unique Receivers",
+                unique_receivers
+            )
 
         # =================================================
         # STAGE 3
         # =================================================
 
-        st.header(
-            "👤 Stage 3: Last Unique Receiver Transactions"
-        )
+        if show_stage3:
 
-        unique_df = (
+            st.header(
+                "👤 Stage 3: Last Unique Receiver Transactions"
+            )
 
-            df[
-                [
-                    "date",
-                    "time",
-                    "receiver_name",
-                    "amount"
+            unique_df = (
+
+                df[
+                    [
+                        "date",
+                        "time",
+                        "receiver_name",
+                        "amount"
+                    ]
                 ]
-            ]
 
-            .dropna(
-                subset=["receiver_name"]
+                .dropna(
+                    subset=["receiver_name"]
+                )
+
+                .drop_duplicates(
+                    subset=["receiver_name"],
+                    keep="last"
+                )
+
+                .reset_index(drop=True)
             )
 
-            .drop_duplicates(
-                subset=["receiver_name"],
-                keep="last"
+            unique_df = unique_df.rename(
+                columns={
+                    "date": "Last Transaction Date",
+                    "time": "Last Transaction Time",
+                    "receiver_name": "Receiver Name",
+                    "amount": "Amount"
+                }
             )
 
-            .reset_index(drop=True)
-        )
-
-        unique_df = unique_df.rename(
-            columns={
-                "date": "Last Transaction Date",
-                "time": "Last Transaction Time",
-                "receiver_name": "Receiver Name",
-                "amount": "Amount"
-            }
-        )
-
-        st.dataframe(
-            unique_df,
-            use_container_width=True,
-            height=500
-        )
+            st.dataframe(
+                unique_df,
+                use_container_width=True,
+                height=500
+            )
 
         # =================================================
         # DOWNLOAD CSV
         # =================================================
 
-        csv = df.to_csv(
-            index=False
-        ).encode("utf-8")
-
         st.download_button(
             label="⬇ Download CSV",
-            data=csv,
+            data=df.to_csv(index=False).encode("utf-8"),
             file_name="transactions.csv",
             mime="text/csv"
         )
