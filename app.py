@@ -529,3 +529,141 @@ if uploaded_file:
             file_name="transactions.csv",
             mime="text/csv"
         )
+        # =========================================================
+        # STAGE 4 : MANUAL PURPOSE TAGGING
+        # ADD THIS BELOW STAGE 3 IN STREAMLIT
+        # =========================================================
+        
+        st.header(
+            "🏷️ Stage 4: Tag Receiver Purpose"
+        )
+        
+        # ---------------------------------------------------------
+        # CREATE UNIQUE RECEIVER TABLE
+        # ---------------------------------------------------------
+        
+        tagging_df = (
+        
+            df[
+                [
+                    "date",
+                    "time",
+                    "receiver_name",
+                    "amount"
+                ]
+            ]
+        
+            .dropna(
+                subset=["receiver_name"]
+            )
+        
+            .drop_duplicates(
+                subset=["receiver_name"],
+                keep="last"
+            )
+        
+            .reset_index(drop=True)
+        )
+        
+        # ---------------------------------------------------------
+        # SESSION STATE
+        # ---------------------------------------------------------
+        
+        if "tagged_df" not in st.session_state:
+        
+            tagging_df["purpose"] = "Unassigned"
+        
+            st.session_state.tagged_df = tagging_df.copy()
+        
+        # ---------------------------------------------------------
+        # PURPOSE OPTIONS
+        # ---------------------------------------------------------
+        
+        purpose_options = [
+        
+            "Food",
+            "Travel",
+            "Recharge",
+            "Shopping",
+            "Medical",
+            "Education",
+            "Entertainment",
+            "Bills",
+            "Rent",
+            "Fuel",
+            "Investment",
+            "Transfer",
+            "Family",
+            "Salary",
+            "Other"
+        ]
+        
+        # ---------------------------------------------------------
+        # SELECT RECEIVER
+        # ---------------------------------------------------------
+        
+        receiver_list = st.session_state.tagged_df[
+            "receiver_name"
+        ].tolist()
+        
+        selected_receiver = st.selectbox(
+            "Select Receiver Name",
+            receiver_list
+        )
+        
+        # ---------------------------------------------------------
+        # SELECT PURPOSE
+        # ---------------------------------------------------------
+        
+        selected_purpose = st.selectbox(
+            "Select Purpose",
+            purpose_options
+        )
+        
+        # ---------------------------------------------------------
+        # SAVE BUTTON
+        # ---------------------------------------------------------
+        
+        if st.button("✅ Save Purpose Tag"):
+        
+            st.session_state.tagged_df.loc[
+                st.session_state.tagged_df[
+                    "receiver_name"
+                ] == selected_receiver,
+                "purpose"
+            ] = selected_purpose
+        
+            st.success(
+                f"Purpose updated for {selected_receiver}"
+            )
+        
+        # ---------------------------------------------------------
+        # DISPLAY UPDATED TABLE
+        # ---------------------------------------------------------
+        
+        st.subheader(
+            "📋 Tagged Receiver Table"
+        )
+        
+        st.dataframe(
+            st.session_state.tagged_df,
+            use_container_width=True,
+            height=500
+        )
+        
+        # ---------------------------------------------------------
+        # DOWNLOAD TAGGED CSV
+        # ---------------------------------------------------------
+        
+        tagged_csv = (
+            st.session_state.tagged_df
+            .to_csv(index=False)
+            .encode("utf-8")
+        )
+        
+        st.download_button(
+            label="⬇ Download Tagged CSV",
+            data=tagged_csv,
+            file_name="tagged_receivers.csv",
+            mime="text/csv"
+        )
