@@ -271,11 +271,9 @@ class TransactionExtractor:
                 )
 
             elif credit_match:
-
                 transaction["receiver_name"] = (
                     credit_match[-1].strip()
                 )
-
             # =================================================
             # AMOUNT
             # =================================================
