@@ -706,9 +706,9 @@ def clean_amount(value):
     except Exception:
         return 0.0
 
-# =========================================================
+# ====================================================
 # TRANSACTION EXTRACTOR
-# =========================================================
+# ====================================================
 class TransactionExtractor:
     def __init__(self, uploaded_file):
         self.uploaded_file = uploaded_file
