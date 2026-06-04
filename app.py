@@ -810,6 +810,19 @@ class TransactionExtractor:
         
         df["type"] = df["type"].astype(str).str.upper().str.strip()
         df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+        
+        # =================================================
+        # NORMALIZED RECEIVER NAME
+        # Removes double spaces, strips ends, applies Title Case
+        # =================================================
+        if "receiver_name" in df.columns:
+            df["receiver_name"] = (
+                df["receiver_name"]
+                .str.replace(r'\s+', ' ', regex=True) # Collapse multiple spaces into one
+                .str.strip()                          # Remove leading/trailing whitespaces
+                .str.title()                          # Convert to Title Case (e.g. "JOHN DOE" -> "John Doe")
+            )
+
         if "parsed_date" in df.columns:
             df = df.sort_values(by="parsed_date")
         return df.reset_index(drop=True)
@@ -839,7 +852,7 @@ if uploaded_file:
         # TABS instead of Buttons for a stable UI
         tab1, tab2, tab3, tab4 = st.tabs([
             "📌 Extracted Transactions", 
-            "📊 Summary", 
+            " Summary", 
             "👤 Unique Receivers", 
             "🏷️ Tag Purposes"
         ])
