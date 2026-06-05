@@ -898,6 +898,7 @@ if uploaded_file:
             st.dataframe(unique_df, use_container_width=True, height=400)
 
         # --- TAB 4: MANUAL PURPOSE TAGGING ---
+        # --- TAB 4: MANUAL PURPOSE TAGGING ---
         with tab4:
             st.header("Tag Receiver Purpose")
             
@@ -920,21 +921,47 @@ if uploaded_file:
                 "Investment", "Transfer", "Family", "Salary", "Other"
             ]
 
-            receiver_list = st.session_state.tagged_df["receiver_name"].tolist()
+            # ==========================================
+            # SMART DROPDOWN LOGIC
+            # ==========================================
+            # 1. Toggle to hide receivers that are already tagged
+            hide_tagged = st.checkbox("Hide already tagged receivers", value=True)
             
-            col_a, col_b = st.columns(2)
-            with col_a:
-                selected_receiver = st.selectbox("Select Receiver Name", receiver_list)
-            with col_b:
-                selected_purpose = st.selectbox("Select Purpose", purpose_options)
+            if hide_tagged:
+                filtered_df = st.session_state.tagged_df[
+                    st.session_state.tagged_df["purpose"] == "Unassigned"
+                ]
+            else:
+                filtered_df = st.session_state.tagged_df
 
-            if st.button("✅ Save Purpose Tag"):
-                st.session_state.tagged_df.loc[
-                    st.session_state.tagged_df["receiver_name"] == selected_receiver,
-                    "purpose"
-                ] = selected_purpose
-                st.success(f"Purpose updated for {selected_receiver}")
+            receiver_list = filtered_df["receiver_name"].tolist()
+            
+            # 2. Check if the list is empty (User finished tagging)
+            if not receiver_list and hide_tagged:
+                st.success("🎉 All receivers have been tagged!")
+            else:
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    selected_receiver = st.selectbox("Select Receiver Name", receiver_list)
+                with col_b:
+                    selected_purpose = st.selectbox("Select Purpose", purpose_options)
 
+                if st.button("✅ Save Purpose Tag"):
+                    # Update the purpose in session state
+                    st.session_state.tagged_df.loc[
+                        st.session_state.tagged_df["receiver_name"] == selected_receiver,
+                        "purpose"
+                    ] = selected_purpose
+                    
+                    # Use toast instead of success so the message survives the rerun
+                    st.toast(f"✅ Tagged {selected_receiver} as {selected_purpose}")
+                    
+                    # 3. Force an immediate UI refresh to update the dropdown
+                    st.rerun()
+
+            # ==========================================
+            # DISPLAY AND DOWNLOAD
+            # ==========================================
             st.subheader("📋 Tagged Receiver Table")
             st.dataframe(st.session_state.tagged_df, use_container_width=True, height=400)
 
