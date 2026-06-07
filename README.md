@@ -52,3 +52,4 @@ Your default web browser should automatically open the app at `http://localhost:
 * **Regex Dependency:** The extraction accuracy relies on the specific formatting of the bank statement. If your bank uses a highly unconventional date format or doesn't use the "₹" symbol, the regex patterns in the code may need slight adjustments.
 * **Local Processing:** All data processing happens locally on your machine. No financial data is sent to external servers.
 
+*** App Link- https://newupcomingprjt-zkbebb7fsoaeg3buz8v6cl.streamlit.app/
