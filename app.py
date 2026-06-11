@@ -456,11 +456,16 @@ class TransactionExtractor:
                 df["receiver_name"]
                 .str.replace(r'\s+', ' ', regex=True) # Collapse multiple spaces into one
                 .str.strip()                          # Remove leading/trailing whitespaces
-                .str.title()                          # Convert to Title Case (e.g. "JOHN DOE" -> "John Doe")
+                .str.title()                          # Convert to Title Case
             )
 
+        # =================================================
+        # SORT BY DATE AND REMOVE PARSED_DATE
+        # =================================================
         if "parsed_date" in df.columns:
             df = df.sort_values(by="parsed_date")
+            df = df.drop(columns=["parsed_date"]) # Removes the column from the final output
+            
         return df.reset_index(drop=True)
 
 # =========================================================
