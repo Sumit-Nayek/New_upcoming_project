@@ -1,4 +1,3 @@
-
 # import streamlit as st
 # import pdfplumber
 # import pandas as pd
@@ -145,18 +144,22 @@
         
 #         # =================================================
 #         # NORMALIZED RECEIVER NAME
-#         # Removes double spaces, strips ends, applies Title Case
 #         # =================================================
 #         if "receiver_name" in df.columns:
 #             df["receiver_name"] = (
 #                 df["receiver_name"]
-#                 .str.replace(r'\s+', ' ', regex=True) # Collapse multiple spaces into one
-#                 .str.strip()                          # Remove leading/trailing whitespaces
-#                 .str.title()                          # Convert to Title Case (e.g. "JOHN DOE" -> "John Doe")
+#                 .str.replace(r'\s+', ' ', regex=True) 
+#                 .str.strip()                          
+#                 .str.title()                          
 #             )
 
+#         # =================================================
+#         # SORT BY DATE AND REMOVE PARSED_DATE
+#         # =================================================
 #         if "parsed_date" in df.columns:
 #             df = df.sort_values(by="parsed_date")
+#             df = df.drop(columns=["parsed_date"]) 
+            
 #         return df.reset_index(drop=True)
 
 # # =========================================================
@@ -184,7 +187,7 @@
 #         # TABS instead of Buttons for a stable UI
 #         tab1, tab2, tab3, tab4 = st.tabs([
 #             "📌 Extracted Transactions", 
-#             " Summary", 
+#             "📊 Summary", 
 #             "👤 Unique Receivers", 
 #             "🏷️ Tag Purposes"
 #         ])
@@ -194,9 +197,9 @@
 #             st.header("Extracted Transactions")
 #             st.dataframe(df, use_container_width=True, height=400)
 #             st.download_button(
-#                 label="⬇ Download CSV",
+#                 label="⬇ Download Raw CSV",
 #                 data=df.to_csv(index=False).encode("utf-8"),
-#                 file_name="transactions.csv",
+#                 file_name="transactions_raw.csv",
 #                 mime="text/csv"
 #             )
 
@@ -216,98 +219,185 @@
 #         with tab3:
 #             st.header("Last Unique Receiver Transactions")
 #             unique_df = (
-#                 df[["date", "time", "receiver_name", "amount"]]
+#                 df[["date", "time", "receiver_name", "type", "amount"]]
 #                 .dropna(subset=["receiver_name"])
-#                 .drop_duplicates(subset=["receiver_name"], keep="last")
+#                 .drop_duplicates(subset=["receiver_name", "type"], keep="last")
 #                 .reset_index(drop=True)
 #                 .rename(columns={
 #                     "date": "Last Transaction Date",
 #                     "time": "Last Transaction Time",
-#                     "receiver_name": "Receiver Name",
+#                     "receiver_name": "Receiver/Sender Name",
+#                     "type": "Transaction Type",
 #                     "amount": "Amount"
 #                 })
 #             )
 #             st.dataframe(unique_df, use_container_width=True, height=400)
 
-#         # --- TAB 4: MANUAL PURPOSE TAGGING ---
-#         # --- TAB 4: MANUAL PURPOSE TAGGING ---
+#         # --- TAB 4: ISOLATED DEBIT & CREDIT TAGGING & SYNC ---
 #         with tab4:
-#             st.header("Tag Receiver Purpose")
+#             st.header("Tag Receiver & Sender Purposes")
             
-#             # Base table for tagging
-#             tagging_base_df = (
-#                 df[["date", "time", "receiver_name", "amount"]]
-#                 .dropna(subset=["receiver_name"])
-#                 .drop_duplicates(subset=["receiver_name"], keep="last")
-#                 .reset_index(drop=True)
-#             )
-
-#             # Initialize session state for tags if it doesn't exist
-#             if "tagged_df" not in st.session_state:
-#                 tagging_base_df["purpose"] = "Unassigned"
-#                 st.session_state.tagged_df = tagging_base_df.copy()
-
-#             purpose_options = [
+#             # Purpose Lists (Separated for better UX)
+#             debit_purposes = [
 #                 "Food", "Travel", "Recharge", "Shopping", "Medical", 
 #                 "Education", "Entertainment", "Bills", "Rent", "Fuel", 
-#                 "Investment", "Transfer", "Family", "Salary", "Other"
+#                 "Investment", "Transfer", "Family", "Other"
+#             ]
+            
+#             credit_purposes = [
+#                 "Salary", "Business", "Transfer", "Cashback", "Refund", 
+#                 "Family", "Investment Return", "Other"
 #             ]
 
 #             # ==========================================
-#             # SMART DROPDOWN LOGIC
+#             # SEPARATE DATAFRAMES FOR DEBIT & CREDIT
 #             # ==========================================
-#             # 1. Toggle to hide receivers that are already tagged
-#             hide_tagged = st.checkbox("Hide already tagged receivers", value=True)
+#             # Initialize DEBIT Tagging State
+#             if "debit_tagged_df" not in st.session_state:
+#                 debit_base_df = (
+#                     df[df["type"] == "DEBIT"][["date", "time", "receiver_name", "amount"]]
+#                     .dropna(subset=["receiver_name"])
+#                     .drop_duplicates(subset=["receiver_name"], keep="last")
+#                     .reset_index(drop=True)
+#                 )
+#                 debit_base_df["purpose"] = "Unassigned"
+#                 st.session_state.debit_tagged_df = debit_base_df.copy()
+
+#             # Initialize CREDIT Tagging State
+#             if "credit_tagged_df" not in st.session_state:
+#                 credit_base_df = (
+#                     df[df["type"] == "CREDIT"][["date", "time", "receiver_name", "amount"]]
+#                     .dropna(subset=["receiver_name"])
+#                     .drop_duplicates(subset=["receiver_name"], keep="last")
+#                     .reset_index(drop=True)
+#                 )
+#                 credit_base_df["purpose"] = "Unassigned"
+#                 st.session_state.credit_tagged_df = credit_base_df.copy()
+
+#             # Global Hide Tagged Toggle
+#             hide_tagged = st.checkbox("Hide already tagged records", value=True)
+
+#             # ------------------------------------------
+#             # SECTION A: DEBIT TAGGING
+#             # ------------------------------------------
+#             st.subheader("🔴 Debit Tagging (Money Out)")
             
 #             if hide_tagged:
-#                 filtered_df = st.session_state.tagged_df[
-#                     st.session_state.tagged_df["purpose"] == "Unassigned"
-#                 ]
+#                 debit_filtered = st.session_state.debit_tagged_df[st.session_state.debit_tagged_df["purpose"] == "Unassigned"]
 #             else:
-#                 filtered_df = st.session_state.tagged_df
+#                 debit_filtered = st.session_state.debit_tagged_df
 
-#             receiver_list = filtered_df["receiver_name"].tolist()
+#             debit_list = debit_filtered["receiver_name"].tolist()
             
-#             # 2. Check if the list is empty (User finished tagging)
-#             if not receiver_list and hide_tagged:
-#                 st.success("🎉 All receivers have been tagged!")
+#             if not debit_list and len(st.session_state.debit_tagged_df) > 0:
+#                 st.success("🎉 All Debit transactions have been tagged!")
+#             elif len(st.session_state.debit_tagged_df) == 0:
+#                 st.info("No debit transactions found to tag.")
 #             else:
-#                 col_a, col_b = st.columns(2)
-#                 with col_a:
-#                     selected_receiver = st.selectbox("Select Receiver Name", receiver_list)
-#                 with col_b:
-#                     selected_purpose = st.selectbox("Select Purpose", purpose_options)
+#                 col_d1, col_d2 = st.columns(2)
+#                 with col_d1:
+#                     sel_debit_receiver = st.selectbox("Select Debit Receiver", debit_list, key="debit_rec")
+#                 with col_d2:
+#                     sel_debit_purpose = st.selectbox("Select Debit Purpose", debit_purposes, key="debit_pur")
 
-#                 if st.button("✅ Save Purpose Tag"):
-#                     # Update the purpose in session state
-#                     st.session_state.tagged_df.loc[
-#                         st.session_state.tagged_df["receiver_name"] == selected_receiver,
+#                 if st.button("✅ Save Debit Tag"):
+#                     st.session_state.debit_tagged_df.loc[
+#                         st.session_state.debit_tagged_df["receiver_name"] == sel_debit_receiver,
 #                         "purpose"
-#                     ] = selected_purpose
-                    
-#                     # Use toast instead of success so the message survives the rerun
-#                     st.toast(f"✅ Tagged {selected_receiver} as {selected_purpose}")
-                    
-#                     # 3. Force an immediate UI refresh to update the dropdown
+#                     ] = sel_debit_purpose
+#                     st.toast(f"✅ Tagged DEBIT: {sel_debit_receiver} -> {sel_debit_purpose}")
+#                     st.rerun()
+            
+#             with st.expander("View Tagged Debit List"):
+#                 st.dataframe(st.session_state.debit_tagged_df, use_container_width=True)
+
+#             st.divider()
+
+#             # ------------------------------------------
+#             # SECTION B: CREDIT TAGGING
+#             # ------------------------------------------
+#             st.subheader("🟢 Credit Tagging (Money In)")
+            
+#             if hide_tagged:
+#                 credit_filtered = st.session_state.credit_tagged_df[st.session_state.credit_tagged_df["purpose"] == "Unassigned"]
+#             else:
+#                 credit_filtered = st.session_state.credit_tagged_df
+
+#             credit_list = credit_filtered["receiver_name"].tolist()
+            
+#             if not credit_list and len(st.session_state.credit_tagged_df) > 0:
+#                 st.success("🎉 All Credit transactions have been tagged!")
+#             elif len(st.session_state.credit_tagged_df) == 0:
+#                 st.info("No credit transactions found to tag.")
+#             else:
+#                 col_c1, col_c2 = st.columns(2)
+#                 with col_c1:
+#                     sel_credit_receiver = st.selectbox("Select Credit Sender", credit_list, key="credit_rec")
+#                 with col_c2:
+#                     sel_credit_purpose = st.selectbox("Select Credit Purpose", credit_purposes, key="credit_pur")
+
+#                 if st.button("✅ Save Credit Tag"):
+#                     st.session_state.credit_tagged_df.loc[
+#                         st.session_state.credit_tagged_df["receiver_name"] == sel_credit_receiver,
+#                         "purpose"
+#                     ] = sel_credit_purpose
+#                     st.toast(f"✅ Tagged CREDIT: {sel_credit_receiver} -> {sel_credit_purpose}")
 #                     st.rerun()
 
-#             # ==========================================
-#             # DISPLAY AND DOWNLOAD
-#             # ==========================================
-#             st.subheader("📋 Tagged Receiver Table")
-#             st.dataframe(st.session_state.tagged_df, use_container_width=True, height=400)
+#             with st.expander("View Tagged Credit List"):
+#                 st.dataframe(st.session_state.credit_tagged_df, use_container_width=True)
 
-#             st.download_button(
-#                 label="⬇ Download Tagged CSV",
-#                 data=st.session_state.tagged_df.to_csv(index=False).encode("utf-8"),
-#                 file_name="tagged_receivers.csv",
-#                 mime="text/csv"
-#             )
+#             # ==========================================
+#             # MASTER FILE SYNC & DOWNLOAD
+#             # ==========================================
+#             st.divider()
+#             st.subheader("🔄 Apply Tags to Master File")
+#             st.write("Click below to apply your Debit and Credit tags safely to the main extracted file.")
+
+#             if st.button("🚀 Sync Tags to All Transactions"):
+#                 # 1. Create mapping dictionaries
+#                 debit_mapping = dict(zip(
+#                     st.session_state.debit_tagged_df["receiver_name"], 
+#                     st.session_state.debit_tagged_df["purpose"]
+#                 ))
+#                 credit_mapping = dict(zip(
+#                     st.session_state.credit_tagged_df["receiver_name"], 
+#                     st.session_state.credit_tagged_df["purpose"]
+#                 ))
+                
+#                 # 2. Copy original dataframe
+#                 master_df = df.copy()
+#                 master_df["purpose"] = "Unassigned"
+                
+#                 # 3. Apply mappings safely based strictly on Type
+#                 debit_mask = master_df["type"] == "DEBIT"
+#                 master_df.loc[debit_mask, "purpose"] = master_df.loc[debit_mask, "receiver_name"].map(debit_mapping).fillna("Unassigned")
+                
+#                 credit_mask = master_df["type"] == "CREDIT"
+#                 master_df.loc[credit_mask, "purpose"] = master_df.loc[credit_mask, "receiver_name"].map(credit_mapping).fillna("Unassigned")
+                
+#                 # 4. Store in session state
+#                 st.session_state.master_df = master_df
+#                 st.success("✅ Master file successfully updated with both Debit and Credit tags!")
+
+#             # If master file exists, show download
+#             if "master_df" in st.session_state:
+#                 st.subheader("📊 Fully Tagged Master File")
+#                 st.dataframe(st.session_state.master_df, use_container_width=True, height=400)
+
+#                 st.download_button(
+#                     label="⬇ Download Fully Tagged Master CSV",
+#                     data=st.session_state.master_df.to_csv(index=False).encode("utf-8"),
+#                     file_name="master_transactions_fully_tagged.csv",
+#                     mime="text/csv",
+#                     type="primary"
+#                 )
 import streamlit as st
 import pdfplumber
 import pandas as pd
 import re
 from datetime import datetime
+import plotly.express as px
 
 # =========================================================
 # PAGE CONFIG
@@ -490,11 +580,12 @@ if uploaded_file:
         st.error("No transactions found in the PDF.")
     else:
         # TABS instead of Buttons for a stable UI
-        tab1, tab2, tab3, tab4 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📌 Extracted Transactions", 
             "📊 Summary", 
             "👤 Unique Receivers", 
-            "🏷️ Tag Purposes"
+            "🏷️ Tag Purposes",
+            "📈 Visualizations"
         ])
 
         # --- TAB 1: ALL TRANSACTIONS ---
@@ -542,7 +633,7 @@ if uploaded_file:
         with tab4:
             st.header("Tag Receiver & Sender Purposes")
             
-            # Purpose Lists (Separated for better UX)
+            # Purpose Lists
             debit_purposes = [
                 "Food", "Travel", "Recharge", "Shopping", "Medical", 
                 "Education", "Entertainment", "Bills", "Rent", "Fuel", 
@@ -554,10 +645,7 @@ if uploaded_file:
                 "Family", "Investment Return", "Other"
             ]
 
-            # ==========================================
-            # SEPARATE DATAFRAMES FOR DEBIT & CREDIT
-            # ==========================================
-            # Initialize DEBIT Tagging State
+            # Initialize States
             if "debit_tagged_df" not in st.session_state:
                 debit_base_df = (
                     df[df["type"] == "DEBIT"][["date", "time", "receiver_name", "amount"]]
@@ -568,7 +656,6 @@ if uploaded_file:
                 debit_base_df["purpose"] = "Unassigned"
                 st.session_state.debit_tagged_df = debit_base_df.copy()
 
-            # Initialize CREDIT Tagging State
             if "credit_tagged_df" not in st.session_state:
                 credit_base_df = (
                     df[df["type"] == "CREDIT"][["date", "time", "receiver_name", "amount"]]
@@ -579,14 +666,10 @@ if uploaded_file:
                 credit_base_df["purpose"] = "Unassigned"
                 st.session_state.credit_tagged_df = credit_base_df.copy()
 
-            # Global Hide Tagged Toggle
             hide_tagged = st.checkbox("Hide already tagged records", value=True)
 
-            # ------------------------------------------
-            # SECTION A: DEBIT TAGGING
-            # ------------------------------------------
+            # DEBIT TAGGING
             st.subheader("🔴 Debit Tagging (Money Out)")
-            
             if hide_tagged:
                 debit_filtered = st.session_state.debit_tagged_df[st.session_state.debit_tagged_df["purpose"] == "Unassigned"]
             else:
@@ -618,11 +701,8 @@ if uploaded_file:
 
             st.divider()
 
-            # ------------------------------------------
-            # SECTION B: CREDIT TAGGING
-            # ------------------------------------------
+            # CREDIT TAGGING
             st.subheader("🟢 Credit Tagging (Money In)")
-            
             if hide_tagged:
                 credit_filtered = st.session_state.credit_tagged_df[st.session_state.credit_tagged_df["purpose"] == "Unassigned"]
             else:
@@ -652,44 +732,29 @@ if uploaded_file:
             with st.expander("View Tagged Credit List"):
                 st.dataframe(st.session_state.credit_tagged_df, use_container_width=True)
 
-            # ==========================================
-            # MASTER FILE SYNC & DOWNLOAD
-            # ==========================================
+            # MASTER FILE SYNC
             st.divider()
             st.subheader("🔄 Apply Tags to Master File")
-            st.write("Click below to apply your Debit and Credit tags safely to the main extracted file.")
-
+            
             if st.button("🚀 Sync Tags to All Transactions"):
-                # 1. Create mapping dictionaries
-                debit_mapping = dict(zip(
-                    st.session_state.debit_tagged_df["receiver_name"], 
-                    st.session_state.debit_tagged_df["purpose"]
-                ))
-                credit_mapping = dict(zip(
-                    st.session_state.credit_tagged_df["receiver_name"], 
-                    st.session_state.credit_tagged_df["purpose"]
-                ))
+                debit_mapping = dict(zip(st.session_state.debit_tagged_df["receiver_name"], st.session_state.debit_tagged_df["purpose"]))
+                credit_mapping = dict(zip(st.session_state.credit_tagged_df["receiver_name"], st.session_state.credit_tagged_df["purpose"]))
                 
-                # 2. Copy original dataframe
                 master_df = df.copy()
                 master_df["purpose"] = "Unassigned"
                 
-                # 3. Apply mappings safely based strictly on Type
                 debit_mask = master_df["type"] == "DEBIT"
                 master_df.loc[debit_mask, "purpose"] = master_df.loc[debit_mask, "receiver_name"].map(debit_mapping).fillna("Unassigned")
                 
                 credit_mask = master_df["type"] == "CREDIT"
                 master_df.loc[credit_mask, "purpose"] = master_df.loc[credit_mask, "receiver_name"].map(credit_mapping).fillna("Unassigned")
                 
-                # 4. Store in session state
                 st.session_state.master_df = master_df
-                st.success("✅ Master file successfully updated with both Debit and Credit tags!")
+                st.success("✅ Master file successfully updated!")
 
-            # If master file exists, show download
             if "master_df" in st.session_state:
                 st.subheader("📊 Fully Tagged Master File")
                 st.dataframe(st.session_state.master_df, use_container_width=True, height=400)
-
                 st.download_button(
                     label="⬇ Download Fully Tagged Master CSV",
                     data=st.session_state.master_df.to_csv(index=False).encode("utf-8"),
@@ -697,3 +762,101 @@ if uploaded_file:
                     mime="text/csv",
                     type="primary"
                 )
+
+        # --- TAB 5: VISUALIZATIONS ---
+        with tab5:
+            st.header("📈 Financial Analysis & Visualizations")
+
+            # Determine which dataframe to use (Tagged Master if it exists, otherwise Raw)
+            viz_df = st.session_state.get("master_df", df).copy()
+            
+            # Recreate parsed_date for the timeline graph temporarily
+            viz_df['temp_date'] = pd.to_datetime(viz_df['date'], format='%b %d, %Y', errors='coerce')
+
+            # Decide what to group the pie charts by
+            # If the user clicked "Sync Tags" in Tab 4, we use "purpose". If not, we fall back to "receiver_name"
+            grouping_col = "purpose" if "purpose" in viz_df.columns else "receiver_name"
+
+            # ------------------------------------------
+            # 1. PIE CHARTS (Debit & Credit)
+            # ------------------------------------------
+            st.subheader("🍩 Income vs. Expense Distribution")
+            
+            col_pie1, col_pie2 = st.columns(2)
+
+            with col_pie1:
+                st.markdown("#### Debit (Money Out)")
+                debit_data = viz_df[viz_df["type"] == "DEBIT"]
+                
+                if not debit_data.empty:
+                    # Group by the category and sum the amounts
+                    debit_agg = debit_data.groupby(grouping_col, as_index=False)["amount"].sum()
+                    
+                    fig_debit = px.pie(
+                        debit_agg, 
+                        values='amount', 
+                        names=grouping_col, 
+                        hole=0.4, # Creates the donut style
+                        color_discrete_sequence=px.colors.sequential.Reds_r
+                    )
+                    fig_debit.update_traces(textposition='inside', textinfo='percent+label')
+                    st.plotly_chart(fig_debit, use_container_width=True)
+                else:
+                    st.info("No debit transactions to display.")
+
+            with col_pie2:
+                st.markdown("#### Credit (Money In)")
+                credit_data = viz_df[viz_df["type"] == "CREDIT"]
+                
+                if not credit_data.empty:
+                    credit_agg = credit_data.groupby(grouping_col, as_index=False)["amount"].sum()
+                    
+                    fig_credit = px.pie(
+                        credit_agg, 
+                        values='amount', 
+                        names=grouping_col, 
+                        hole=0.4,
+                        color_discrete_sequence=px.colors.sequential.Greens_r
+                    )
+                    fig_credit.update_traces(textposition='inside', textinfo='percent+label')
+                    st.plotly_chart(fig_credit, use_container_width=True)
+                else:
+                    st.info("No credit transactions to display.")
+
+            st.divider()
+
+            # ------------------------------------------
+            # 2. LINE CHART (Trend Over Time)
+            # ------------------------------------------
+            st.subheader("📉 Cash Flow Trend")
+            
+            trend_df = viz_df.dropna(subset=['temp_date']).copy()
+
+            if not trend_df.empty:
+                time_interval = st.selectbox("Select View Interval", ["Daily", "Weekly", "Monthly"])
+
+                # Map selection to Pandas datetime frequency rules
+                freq_map = {"Daily": "D", "Weekly": "W-MON", "Monthly": "ME"}
+                
+                # Group by the time interval and type (Credit vs Debit)
+                time_agg = (
+                    trend_df.groupby([pd.Grouper(key='temp_date', freq=freq_map[time_interval]), 'type'])['amount']
+                    .sum()
+                    .reset_index()
+                )
+
+                # Generate interactive line chart
+                fig_trend = px.line(
+                    time_agg,
+                    x='temp_date',
+                    y='amount',
+                    color='type',
+                    markers=True,
+                    labels={"temp_date": "Date", "amount": "Amount (₹)", "type": "Transaction Type"},
+                    color_discrete_map={"CREDIT": "#28a745", "DEBIT": "#dc3545"} # Green for Credit, Red for Debit
+                )
+                
+                fig_trend.update_layout(hovermode="x unified")
+                st.plotly_chart(fig_trend, use_container_width=True)
+            else:
+                st.warning("Not enough valid dates to plot trends.")
