@@ -1088,7 +1088,25 @@ with tab2:
         fig_bar.update_traces(hovertemplate="<b>%{y}</b><br>₹%{x:,.0f}<extra></extra>")
         fig_bar.update_layout(**PLOTLY_DARK)
         st.plotly_chart(fig_bar, use_container_width=True, key="top_receivers")  # Added key
-
+# ─────────────────────────────────────────
+# TAB 3 — UNIQUE RECEIVERS
+# ─────────────────────────────────────────
+with tab3:
+    st.markdown('<div class="section-header">Last Transaction per Party</div>', unsafe_allow_html=True)
+    unique_df = (
+        df[["date", "time", "receiver_name", "type", "amount"]]
+        .dropna(subset=["receiver_name"])
+        .drop_duplicates(subset=["receiver_name", "type"], keep="last")
+        .reset_index(drop=True)
+        .rename(columns={
+            "date":          "Last Date",
+            "time":          "Last Time",
+            "receiver_name": "Name",
+            "type":          "Type",
+            "amount":        "Amount (₹)"
+        })
+    )
+    st.dataframe(unique_df, use_container_width=True, height=420)
 # ─────────────────────────────────────────
 # TAB 4 — TAG PURPOSES
 # ─────────────────────────────────────────
