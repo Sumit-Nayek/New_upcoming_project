@@ -1001,8 +1001,16 @@ with tab1:
 # ─────────────────────────────────────────
 # TAB 2 — VISUALIZATIONS
 # ─────────────────────────────────────────
+# ─────────────────────────────────────────
+# TAB 2 — VISUALIZATIONS  (FIXED)
+# ─────────────────────────────────────────
 with tab2:
-    viz_df = st.session_state.get("master_df", df).copy()
+    # CRITICAL FIX: Always use master_df if available, otherwise fallback to df
+    if "master_df" in st.session_state and not st.session_state.master_df.empty:
+        viz_df = st.session_state.master_df.copy()
+    else:
+        viz_df = df.copy()
+    
     viz_df["temp_date"] = pd.to_datetime(viz_df["date"], format="%b %d, %Y", errors="coerce")
     grouping_col = "purpose" if "purpose" in viz_df.columns else "receiver_name"
 
@@ -1019,7 +1027,7 @@ with tab2:
             fig.update_traces(textposition="inside", textinfo="percent+label",
                               marker_line_width=0, hovertemplate="<b>%{label}</b><br>₹%{value:,.0f}<extra></extra>")
             fig.update_layout(**PLOTLY_DARK)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="outflow_donut")  # Added key
         else:
             st.info("No debit data.")
 
@@ -1032,7 +1040,7 @@ with tab2:
             fig.update_traces(textposition="inside", textinfo="percent+label",
                               marker_line_width=0, hovertemplate="<b>%{label}</b><br>₹%{value:,.0f}<extra></extra>")
             fig.update_layout(**PLOTLY_DARK)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="inflow_donut")  # Added key
         else:
             st.info("No credit data.")
 
@@ -1056,7 +1064,7 @@ with tab2:
         )
         fig_trend.update_traces(line_width=2, marker_size=5)
         fig_trend.update_layout(hovermode="x unified", **PLOTLY_DARK)
-        st.plotly_chart(fig_trend, use_container_width=True)
+        st.plotly_chart(fig_trend, use_container_width=True, key="trend_chart")  # Added key
 
     # ── Top 10 recipients bar ──
     st.markdown('<div class="section-header">Top Expense Destinations</div>', unsafe_allow_html=True)
@@ -1079,27 +1087,7 @@ with tab2:
         fig_bar.update_coloraxes(showscale=False)
         fig_bar.update_traces(hovertemplate="<b>%{y}</b><br>₹%{x:,.0f}<extra></extra>")
         fig_bar.update_layout(**PLOTLY_DARK)
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-# ─────────────────────────────────────────
-# TAB 3 — UNIQUE RECEIVERS
-# ─────────────────────────────────────────
-with tab3:
-    st.markdown('<div class="section-header">Last Transaction per Party</div>', unsafe_allow_html=True)
-    unique_df = (
-        df[["date", "time", "receiver_name", "type", "amount"]]
-        .dropna(subset=["receiver_name"])
-        .drop_duplicates(subset=["receiver_name", "type"], keep="last")
-        .reset_index(drop=True)
-        .rename(columns={
-            "date":          "Last Date",
-            "time":          "Last Time",
-            "receiver_name": "Name",
-            "type":          "Type",
-            "amount":        "Amount (₹)"
-        })
-    )
-    st.dataframe(unique_df, use_container_width=True, height=420)
+        st.plotly_chart(fig_bar, use_container_width=True, key="top_receivers")  # Added key
 
 # ─────────────────────────────────────────
 # TAB 4 — TAG PURPOSES
@@ -1219,6 +1207,9 @@ with tab4:
         master.loc[cm, "purpose"] = master.loc[cm, "receiver_name"].map(c_map).fillna("Unassigned")
         st.session_state.master_df = master
         st.success("Master file updated — Visualizations will now use your categories.")
+        # Force immediate rerun to refresh all tabs
+        st.success(f"✅ Master updated! {len(master)} transactions tagged.")
+        st.rerun()  # This ensures all tabs refresh with new data
 
     if "master_df" in st.session_state:
         st.dataframe(st.session_state.master_df, use_container_width=True, height=360)
@@ -1227,6 +1218,7 @@ with tab4:
             st.session_state.master_df.to_csv(index=False).encode("utf-8"),
             "transactions_tagged.csv", "text/csv"
         )
+    
 
 # ─────────────────────────────────────────
 # TAB 5 — AUTO-INSIGHTS
