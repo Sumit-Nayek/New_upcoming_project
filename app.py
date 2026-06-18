@@ -497,12 +497,22 @@ if not uploaded_file:
 # =========================================================
 # EXTRACTION
 # =========================================================
+# =========================================================
+# EXTRACTION
+# =========================================================
 with st.spinner("Reading transactions…"):
     df = get_pdf_data(uploaded_file)
 
 if df.empty:
     st.error("No transactions could be extracted from this PDF. Check that the file contains text-based UPI/bank transactions.")
     st.stop()
+
+# Store the current df in session state if not already set
+if st.session_state.current_df is None or st.session_state.current_df.empty:
+    st.session_state.current_df = df.copy()
+elif len(st.session_state.current_df) != len(df):
+    # If the new df has different length, update it
+    st.session_state.current_df = df.copy()
 
 # =========================================================
 # KPI BANNER
