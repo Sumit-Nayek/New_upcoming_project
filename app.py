@@ -712,6 +712,9 @@ with tab3:
 # ─────────────────────────────────────────
 # TAB 4 — TAG PURPOSES
 # ─────────────────────────────────────────
+# ─────────────────────────────────────────
+# TAB 4 — TAG PURPOSES
+# ─────────────────────────────────────────
 with tab4:
     st.markdown('<div class="section-header">Categorise Transactions</div>', unsafe_allow_html=True)
 
@@ -721,9 +724,15 @@ with tab4:
     credit_purposes = ["Salary", "Business", "Transfer", "Cashback", "Refund",
                        "Family", "Investment Return", "Other"]
 
-    # Initialize or reset tagged dataframes based on current df
-    current_df = st.session_state.current_df.copy()
-    
+    # FIX: Safely get the current dataframe
+    if st.session_state.current_df is not None and not st.session_state.current_df.empty:
+        current_df = st.session_state.current_df.copy()
+    else:
+        # Fallback to the local df variable from the extraction step
+        current_df = df.copy()
+        # Also update the session state to prevent future issues
+        st.session_state.current_df = current_df.copy()
+
     # Check if we need to reinitialize the tagging dataframes
     need_init = False
     
@@ -750,6 +759,8 @@ with tab4:
                  .reset_index(drop=True))
         cbase["purpose"] = "Unassigned"
         st.session_state.credit_tagged_df = cbase
+
+    # ... rest of the Tab 4 code remains exactly the same ...
 
     # Continue with the rest of your TAB 4 code...
     hide_tagged = st.checkbox("Hide already tagged", value=True)
