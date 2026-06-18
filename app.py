@@ -28,7 +28,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
+# Add to sidebar or top of the app
+with st.sidebar:
+    st.markdown("---")
+    if st.button("🗑️ Reset All Data", type="secondary"):
+        st.session_state.uploaded_file_key = None
+        st.session_state.debit_tagged_df = None
+        st.session_state.credit_tagged_df = None
+        st.session_state.master_df = None
+        st.session_state.current_df = None
+        st.rerun()
 # =========================================================
 # GLOBAL STYLES
 # =========================================================
@@ -441,6 +450,9 @@ with col_logo:
 # =========================================================
 # FILE UPLOAD
 # =========================================================
+# =========================================================
+# FILE UPLOAD
+# =========================================================
 uploaded_file = st.file_uploader(
     "Upload your bank statement PDF",
     type=["pdf"],
@@ -448,7 +460,32 @@ uploaded_file = st.file_uploader(
     label_visibility="collapsed"
 )
 
+# Generate a unique key for the uploaded file
+if uploaded_file is not None:
+    # Use file name + size + modification time as unique identifier
+    file_key = f"{uploaded_file.name}_{uploaded_file.size}_{uploaded_file.file_id if hasattr(uploaded_file, 'file_id') else ''}"
+else:
+    file_key = None
+
+# Check if this is a NEW file upload
+if uploaded_file and file_key != st.session_state.uploaded_file_key:
+    # New file detected - reset all tagged data
+    st.session_state.uploaded_file_key = file_key
+    st.session_state.debit_tagged_df = None
+    st.session_state.credit_tagged_df = None
+    st.session_state.master_df = None
+    st.session_state.current_df = None
+    st.rerun()
+
 if not uploaded_file:
+    # If no file uploaded, clear session state
+    if st.session_state.uploaded_file_key is not None:
+        st.session_state.uploaded_file_key = None
+        st.session_state.debit_tagged_df = None
+        st.session_state.credit_tagged_df = None
+        st.session_state.master_df = None
+        st.session_state.current_df = None
+    
     st.markdown("""
     <div class="upload-zone">
         <div class="upload-title">📂 Drop your bank statement PDF here</div>
@@ -549,15 +586,22 @@ with tab1:
 # ─────────────────────────────────────────
 # TAB 2 — VISUALIZATIONS  (FIXED)
 # ─────────────────────────────────────────
+# ─────────────────────────────────────────
+# TAB 2 — VISUALIZATIONS
+# ─────────────────────────────────────────
 with tab2:
-    # CRITICAL FIX: Always use master_df if available, otherwise fallback to df
-    if "master_df" in st.session_state and not st.session_state.master_df.empty:
+    # Use master_df if available, otherwise use current_df
+    if "master_df" in st.session_state and st.session_state.master_df is not None and not st.session_state.master_df.empty:
         viz_df = st.session_state.master_df.copy()
+    elif "current_df" in st.session_state and st.session_state.current_df is not None:
+        viz_df = st.session_state.current_df.copy()
     else:
         viz_df = df.copy()
     
     viz_df["temp_date"] = pd.to_datetime(viz_df["date"], format="%b %d, %Y", errors="coerce")
     grouping_col = "purpose" if "purpose" in viz_df.columns else "receiver_name"
+    
+    # Rest of the visualization code...
 
     # ── Donut charts ──
     st.markdown('<div class="section-header">Distribution</div>', unsafe_allow_html=True)
@@ -655,6 +699,9 @@ with tab3:
 # ─────────────────────────────────────────
 # TAB 4 — TAG PURPOSES
 # ─────────────────────────────────────────
+# ─────────────────────────────────────────
+# TAB 4 — TAG PURPOSES
+# ─────────────────────────────────────────
 with tab4:
     st.markdown('<div class="section-header">Categorise Transactions</div>', unsafe_allow_html=True)
 
@@ -664,23 +711,40 @@ with tab4:
     credit_purposes = ["Salary", "Business", "Transfer", "Cashback", "Refund",
                        "Family", "Investment Return", "Other"]
 
-    if "debit_tagged_df" not in st.session_state:
-        dbase = (df[df["type"] == "DEBIT"][["date", "time", "receiver_name", "amount"]]
+    # Initialize or reset tagged dataframes based on current df
+    current_df = st.session_state.current_df.copy()
+    
+    # Check if we need to reinitialize the tagging dataframes
+    need_init = False
+    
+    if st.session_state.debit_tagged_df is None:
+        need_init = True
+    elif not st.session_state.debit_tagged_df.empty:
+        # Check if the unique receivers match current df
+        current_debit_receivers = set(current_df[current_df["type"] == "DEBIT"]["receiver_name"].dropna().unique())
+        old_debit_receivers = set(st.session_state.debit_tagged_df["receiver_name"].unique())
+        if current_debit_receivers != old_debit_receivers:
+            need_init = True
+    
+    if need_init:
+        dbase = (current_df[current_df["type"] == "DEBIT"][["date", "time", "receiver_name", "amount"]]
                  .dropna(subset=["receiver_name"])
                  .drop_duplicates(subset=["receiver_name"], keep="last")
                  .reset_index(drop=True))
         dbase["purpose"] = "Unassigned"
         st.session_state.debit_tagged_df = dbase
-
-    if "credit_tagged_df" not in st.session_state:
-        cbase = (df[df["type"] == "CREDIT"][["date", "time", "receiver_name", "amount"]]
+        
+        cbase = (current_df[current_df["type"] == "CREDIT"][["date", "time", "receiver_name", "amount"]]
                  .dropna(subset=["receiver_name"])
                  .drop_duplicates(subset=["receiver_name"], keep="last")
                  .reset_index(drop=True))
         cbase["purpose"] = "Unassigned"
         st.session_state.credit_tagged_df = cbase
 
+    # Continue with the rest of your TAB 4 code...
     hide_tagged = st.checkbox("Hide already tagged", value=True)
+
+    # Rest of the TAB 4 code remains the same...
 
     # Progress bars
     d_total   = len(st.session_state.debit_tagged_df)
@@ -762,17 +826,17 @@ with tab4:
                          st.session_state.debit_tagged_df["purpose"]))
         c_map = dict(zip(st.session_state.credit_tagged_df["receiver_name"],
                          st.session_state.credit_tagged_df["purpose"]))
-        master = df.copy()
+        
+        # Use current_df instead of df
+        master = st.session_state.current_df.copy()
         master["purpose"] = "Unassigned"
         dm = master["type"] == "DEBIT"
         master.loc[dm, "purpose"] = master.loc[dm, "receiver_name"].map(d_map).fillna("Unassigned")
         cm = master["type"] == "CREDIT"
         master.loc[cm, "purpose"] = master.loc[cm, "receiver_name"].map(c_map).fillna("Unassigned")
         st.session_state.master_df = master
-        st.success("Master file updated — Visualizations will now use your categories.")
-        # Force immediate rerun to refresh all tabs
         st.success(f"✅ Master updated! {len(master)} transactions tagged.")
-        st.rerun()  # This ensures all tabs refresh with new data
+        st.rerun()
 
     if "master_df" in st.session_state:
         st.dataframe(st.session_state.master_df, use_container_width=True, height=360)
