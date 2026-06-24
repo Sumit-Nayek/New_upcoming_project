@@ -7,3 +7,4 @@ transformers
 torch
 openpyxl
 torchvision
+sqlalchemy

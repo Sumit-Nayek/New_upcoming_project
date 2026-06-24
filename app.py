@@ -977,7 +977,11 @@ import re
 from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
-
+from database import (
+    initialize_db,
+    insert_transactions,
+    load_transactions
+)
 # =========================================================
 # SESSION STATE INITIALIZATION
 # =========================================================
@@ -1007,7 +1011,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
+initialize_db()
 # =========================================================
 # GLOBAL STYLES
 # =========================================================
@@ -1443,7 +1447,7 @@ st.divider()
 # =========================================================
 # MODE 1: TRANSACTION ANALYZER (PDF-based)
 # =========================================================
-if app_mode == "📊 Transaction Analyzer":
+if app_mode == "Transaction Analyzer":
     
     # ── Sidebar Reset ──
     with st.sidebar:
@@ -1875,7 +1879,7 @@ else:  # "💰 Budget Tracker"
     st.caption("Manually add your income and expenses to track your budget visually.")
     
     # ── Add Transaction ──
-    with st.expander("➕ Add New Transaction", expanded=True):
+    with st.expander(" Add New Transaction", expanded=True):
         col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 1])
         
         with col1:

@@ -5,9 +5,14 @@ from pathlib import Path
 DB_PATH = "data/spendwise.db"
 
 
+import streamlit as st
+
+@st.cache_resource
 def get_connection():
-    Path("data").mkdir(exist_ok=True)
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    return sqlite3.connect(
+        DB_PATH,
+        check_same_thread=False
+    )
 
 
 def initialize_db():
