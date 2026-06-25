@@ -977,10 +977,15 @@ import re
 from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
+
 from database import (
     initialize_db,
     insert_transactions,
-    load_transactions
+    load_transactions,
+    get_total_transactions,
+    get_total_spending,
+    get_total_income,
+    get_monthly_spending
 )
 # =========================================================
 # SESSION STATE INITIALIZATION
@@ -1509,9 +1514,17 @@ if app_mode == "Transaction Analyzer":
 
     # Store in session state
     st.session_state.current_df = df.copy()
+    
     if st.session_state.master_df is None:
         st.session_state.master_df = df.copy()
+    inserted = insert_transactions(
+    transactions_df,
+    uploaded_file.name
+)
 
+    st.success(
+    f"✅ {inserted} new transactions saved to database."
+) 
     # ── KPI Banner ──
     total_debit  = df[df["type"] == "DEBIT"]["amount"].sum()
     total_credit = df[df["type"] == "CREDIT"]["amount"].sum()

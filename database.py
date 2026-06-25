@@ -112,3 +112,62 @@ def load_transactions():
 
     conn.close()
     return df
+def get_total_transactions():
+    conn = get_connection()
+
+    count = pd.read_sql(
+        "SELECT COUNT(*) AS cnt FROM transactions",
+        conn
+    ).iloc[0]["cnt"]
+
+    conn.close()
+
+    return int(count)
+def get_total_spending():
+    conn = get_connection()
+
+    result = pd.read_sql("""
+        SELECT
+        COALESCE(
+            SUM(amount),
+            0
+        ) AS total
+        FROM transactions
+        WHERE type='DEBIT'
+    """, conn)
+
+    conn.close()
+
+    return float(result.iloc[0]["total"])
+def get_total_income():
+    conn = get_connection()
+
+    result = pd.read_sql("""
+        SELECT
+        COALESCE(
+            SUM(amount),
+            0
+        ) AS total
+        FROM transactions
+        WHERE type='CREDIT'
+    """, conn)
+
+    conn.close()
+
+    return float(result.iloc[0]["total"])
+def get_monthly_spending():
+    conn = get_connection()
+
+    df = pd.read_sql("""
+    SELECT
+        substr(date,1,8) AS month,
+        SUM(amount) AS total
+    FROM transactions
+    WHERE type='DEBIT'
+    GROUP BY month
+    ORDER BY month
+    """, conn)
+
+    conn.close()
+
+    return df
