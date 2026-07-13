@@ -1,5 +1,5 @@
 
-# 💰 Financial Transaction Analyzer
+# 💰 Financial Document Analyzer
 
 A fast, interactive web application built with Streamlit that extracts, analyzes, and categorizes transaction data from bank statement PDFs. 
 
