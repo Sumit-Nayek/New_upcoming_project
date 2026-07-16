@@ -4,6 +4,8 @@
 A fast, interactive web application built with Streamlit that extracts, analyzes, and categorizes transaction data from bank statement PDFs. 
 
 By leveraging pre-compiled regular expressions and cached data processing, this tool instantly parses complex financial documents into readable tables, provides high-level financial summaries, and allows users to manually tag transactions by category for better expense tracking.
+<img width="1376" height="768" alt="Gemini_Generated_Image_rv8f61rv8f61rv8f" src="https://github.com/user-attachments/assets/cdc25450-4859-4ee1-bcdb-cfece54306b1" />
+
 
 ## ✨ Features
 
