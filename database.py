@@ -1,10 +1,18 @@
 import sqlite3
 import pandas as pd
 from pathlib import Path
+import streamlit as st
 
-DB_PATH = "data/spendwise.db"
+DB_DIR = Path("data")
+DB_DIR.mkdir(parents=True, exist_ok=True)   # <-- ensures the folder exists
+DB_PATH = DB_DIR / "spendwise.db"
 
-
+@st.cache_resource
+def get_connection():
+    return sqlite3.connect(
+        str(DB_PATH),
+        check_same_thread=False
+    )
 import streamlit as st
 
 @st.cache_resource
