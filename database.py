@@ -1,181 +1,116 @@
-import sqlite3
 import pandas as pd
-from pathlib import Path
 import streamlit as st
+from sqlalchemy import create_engine, text
 
-DB_DIR = Path("data")
-DB_DIR.mkdir(parents=True, exist_ok=True)   # <-- ensures the folder exists
-DB_PATH = DB_DIR / "spendwise.db"
 
 @st.cache_resource
 def get_connection():
-    return sqlite3.connect(
-        str(DB_PATH),
-        check_same_thread=False
+    cfg = st.secrets["postgres"]
+    url = (
+        f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
+        f"@{cfg['host']}:{cfg['port']}/{cfg['database']}"
     )
-import streamlit as st
-
-@st.cache_resource
-def get_connection():
-    return sqlite3.connect(
-        DB_PATH,
-        check_same_thread=False
-    )
+    return create_engine(url, pool_pre_ping=True)
 
 
 def initialize_db():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT,
-        time TEXT,
-        recipient TEXT,
-        type TEXT,
-        amount REAL,
-        category TEXT,
-        transaction_id TEXT UNIQUE,
-        utr_number TEXT,
-        source_file TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS uploads (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT,
-        upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        transactions_added INTEGER
-    )
-    """)
-
-    conn.commit()
-    conn.close()
+    engine = get_connection()
+    with engine.begin() as conn:
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS transactions (
+            id SERIAL PRIMARY KEY,
+            date TEXT,
+            time TEXT,
+            recipient TEXT,
+            type TEXT,
+            amount REAL,
+            category TEXT,
+            transaction_id TEXT UNIQUE,
+            utr_number TEXT,
+            source_file TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS uploads (
+            id SERIAL PRIMARY KEY,
+            filename TEXT,
+            upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            transactions_added INTEGER
+        )
+        """))
 
 
 def insert_transactions(df, source_file):
     if df.empty:
         return 0
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    engine = get_connection()
     inserted = 0
 
-    for _, row in df.iterrows():
-        try:
-            cursor.execute("""
-            INSERT INTO transactions
-            (
-                date,
-                time,
-                recipient,
-                type,
-                amount,
-                category,
-                transaction_id,
-                utr_number,
-                source_file
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                row.get("date"),
-                row.get("time"),
-                row.get("recipient"),
-                row.get("type"),
-                row.get("amount"),
-                row.get("category"),
-                row.get("transaction_id"),
-                row.get("utr_number"),
-                source_file
-            ))
+    with engine.begin() as conn:
+        for _, row in df.iterrows():
+            try:
+                conn.execute(text("""
+                INSERT INTO transactions
+                (date, time, recipient, type, amount, category, transaction_id, utr_number, source_file)
+                VALUES (:date, :time, :recipient, :type, :amount, :category, :transaction_id, :utr_number, :source_file)
+                """), {
+                    "date": row.get("date"),
+                    "time": row.get("time"),
+                    "recipient": row.get("recipient"),
+                    "type": row.get("type"),
+                    "amount": row.get("amount"),
+                    "category": row.get("category"),
+                    "transaction_id": row.get("transaction_id"),
+                    "utr_number": row.get("utr_number"),
+                    "source_file": source_file
+                })
+                inserted += 1
+            except Exception:
+                pass  # duplicate transaction_id -> UNIQUE constraint violation, skip
 
-            inserted += 1
-
-        except sqlite3.IntegrityError:
-            pass
-
-    cursor.execute("""
-    INSERT INTO uploads(filename, transactions_added)
-    VALUES (?, ?)
-    """, (source_file, inserted))
-
-    conn.commit()
-    conn.close()
+        conn.execute(text("""
+        INSERT INTO uploads(filename, transactions_added)
+        VALUES (:filename, :inserted)
+        """), {"filename": source_file, "inserted": inserted})
 
     return inserted
 
 
 def load_transactions():
-    conn = get_connection()
+    engine = get_connection()
+    return pd.read_sql("SELECT * FROM transactions ORDER BY date DESC", engine)
 
-    df = pd.read_sql("""
-    SELECT *
-    FROM transactions
-    ORDER BY date DESC
-    """, conn)
 
-    conn.close()
-    return df
 def get_total_transactions():
-    conn = get_connection()
-
-    count = pd.read_sql(
-        "SELECT COUNT(*) AS cnt FROM transactions",
-        conn
-    ).iloc[0]["cnt"]
-
-    conn.close()
-
+    engine = get_connection()
+    count = pd.read_sql("SELECT COUNT(*) AS cnt FROM transactions", engine).iloc[0]["cnt"]
     return int(count)
+
+
 def get_total_spending():
-    conn = get_connection()
-
+    engine = get_connection()
     result = pd.read_sql("""
-        SELECT
-        COALESCE(
-            SUM(amount),
-            0
-        ) AS total
-        FROM transactions
-        WHERE type='DEBIT'
-    """, conn)
-
-    conn.close()
-
+        SELECT COALESCE(SUM(amount), 0) AS total
+        FROM transactions WHERE type='DEBIT'
+    """, engine)
     return float(result.iloc[0]["total"])
+
+
 def get_total_income():
-    conn = get_connection()
-
+    engine = get_connection()
     result = pd.read_sql("""
-        SELECT
-        COALESCE(
-            SUM(amount),
-            0
-        ) AS total
-        FROM transactions
-        WHERE type='CREDIT'
-    """, conn)
-
-    conn.close()
-
+        SELECT COALESCE(SUM(amount), 0) AS total
+        FROM transactions WHERE type='CREDIT'
+    """, engine)
     return float(result.iloc[0]["total"])
+
+
 def get_monthly_spending():
-    conn = get_connection()
-
-    df = pd.read_sql("""
-    SELECT
-        substr(date,1,8) AS month,
-        SUM(amount) AS total
-    FROM transactions
-    WHERE type='DEBIT'
-    GROUP BY month
-    ORDER BY month
-    """, conn)
-
-    conn.close()
-
-    return df
+    engine = get_connection()
+    return pd.read_sql("""
+        SELECT substr(date,1,8) AS month, SUM(amount) AS total
+        FROM transactions WHERE type='DEBIT'
+        GROUP BY month ORDER BY month
+    """, engine)
